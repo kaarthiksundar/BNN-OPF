@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "bnn-opf"
+version = "0.1.0"
+description = "Bayesian Neural Networks for the OPF problem"
+authors = ["kaarthiksundar <kaarthik01sundar@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "bnn_opf"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
