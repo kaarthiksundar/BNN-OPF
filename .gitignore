@@ -26,4 +26,6 @@ share/python-wheels/
 *.egg
 MANIFEST
 
+data/*
+logs/*
 !*.gitkeep

@@ -1,0 +1,3 @@
+[submodule "Egret"]
+	path = Egret
+	url = https://github.com/grid-parity-exchange/Egret.git
