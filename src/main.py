@@ -11,9 +11,9 @@ app = typer.Typer()
 
 @app.command()
 def main(
-    datapath: Annotated[str, typer.Argument()] = './data/case57/', 
-    trainingdatafile: Annotated[str, typer.Argument()] = 'FeasiblePairs_Case57.mat', 
-    casefile: Annotated[str, typer.Argument()] = 'case57_ieee.m',
+    case_path: Annotated[str, typer.Argument()] = './data/pglib_opf_case118_ieee/', 
+    training_data_folder: Annotated[str, typer.Argument()] = './data/pglib_opf_case118_ieee/group_0/', 
+    case_file: Annotated[str, typer.Argument()] = 'pglib_opf_case118_ieee.m',
     debug: Annotated[bool, typer.Option()] = False, 
     warn: Annotated[bool, typer.Option()] = False, 
     error: Annotated[bool, typer.Option()] = False) -> None:
@@ -24,17 +24,17 @@ def main(
 
     log = get_logger(debug, warn, error)
     
-    if (Path(datapath + trainingdatafile).is_file() == False): 
-        log.error(f'File {datapath + trainingdatafile} does not exist')
+    if (Path(case_path + training_data_folder).exists == False): 
+        log.error(f'Folder {case_path + training_data_folder} does not exist')
         return
     
-    if (Path(datapath + casefile).is_file() == False): 
-        log.error(f'File {datapath + casefile} does not exist')
+    if (Path(case_path + case_file).is_file() == False): 
+        log.error(f'File {case_path + case_file} does not exist')
         return
 
     data = load_training_data_from_mat(
-        datapath + trainingdatafile, 
-        datapath + casefile, 
+        case_path + training_data_folder, 
+        case_path + case_file,
         log)
     
     
