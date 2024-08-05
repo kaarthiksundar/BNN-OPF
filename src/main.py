@@ -11,9 +11,8 @@ app = typer.Typer()
 
 @app.command()
 def main(
-    case_path: Annotated[str, typer.Argument()] = './data/pglib_opf_case118_ieee/', 
-    training_data_folder: Annotated[str, typer.Argument()] = './data/pglib_opf_case118_ieee/group_0/', 
-    case_file: Annotated[str, typer.Argument()] = 'pglib_opf_case118_ieee.m',
+    data_path: Annotated[str, typer.Argument()] = './data/', 
+    case: Annotated[str, typer.Argument()] = 'pglib_opf_case14_ieee',
     debug: Annotated[bool, typer.Option()] = False, 
     warn: Annotated[bool, typer.Option()] = False, 
     error: Annotated[bool, typer.Option()] = False) -> None:
@@ -24,19 +23,11 @@ def main(
 
     log = get_logger(debug, warn, error)
     
-    if (Path(case_path + training_data_folder).exists == False): 
-        log.error(f'Folder {case_path + training_data_folder} does not exist')
-        return
-    
-    if (Path(case_path + case_file).is_file() == False): 
-        log.error(f'File {case_path + case_file} does not exist')
+    if (Path(data_path + case + '.m').is_file() == False): 
+        log.error(f'File {data_path + case}.m does not exist')
         return
 
-    data = load_training_data_from_mat(
-        case_path + training_data_folder, 
-        case_path + case_file,
-        log)
-    
+    data = load_training_data_from_mat(data_path, case, log)
     
 
 def get_logger(debug, warn, error): 
