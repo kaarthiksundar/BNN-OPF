@@ -28,4 +28,6 @@ MANIFEST
 
 data/*
 logs/*
+scripts/*
+!data/*.m
 !*.gitkeep
