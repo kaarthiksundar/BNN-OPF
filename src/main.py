@@ -13,6 +13,8 @@ app = typer.Typer()
 def main(
     data_path: Annotated[str, typer.Argument()] = './data/', 
     case: Annotated[str, typer.Argument()] = 'pglib_opf_case14_ieee',
+    num_train_per_group: Annotated[int, typer.Argument()] = 50, 
+    num_test_per_group: Annotated[int, typer.Argument()] = 10,
     debug: Annotated[bool, typer.Option()] = False, 
     warn: Annotated[bool, typer.Option()] = False, 
     error: Annotated[bool, typer.Option()] = False) -> None:

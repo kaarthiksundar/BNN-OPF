@@ -79,6 +79,7 @@ class OPFData():
         q_max: List, 
         v_min: List, 
         v_max: List) -> None:
+        # need to add va_ref
         
         self.case_name = case_name
         self.case_data = case_data
