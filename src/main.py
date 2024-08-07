@@ -50,6 +50,7 @@ def get_logger(debug, warn, error):
     fh = logging.FileHandler(f'./logs/output.log', mode='w')
     fh.setFormatter(CustomFormatter())
     log.addHandler(fh) 
+    return log
 
 
 if __name__ == "__main__":
