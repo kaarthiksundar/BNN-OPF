@@ -16,6 +16,7 @@ scipy = "^1.14.0"
 gridx-egret = {path = "Egret"}
 torch_geometric = {git = "https://github.com/pyg-team/pytorch_geometric.git", branch="master"}
 jax = "^0.4.31"
+tqdm = "^4.66.5"
 
 [build-system]
 requires = ["poetry-core"]

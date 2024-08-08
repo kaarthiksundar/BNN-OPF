@@ -12,11 +12,14 @@ from scipy.sparse import csr_matrix
 from classes import BranchAdmittanceMatrix
 import logging
 import jax.numpy as jnp
+import tqdm
+import pathlib
+import json
 
 def load_training_data_from_mat(
-    data_folder: str, 
-    case: str, 
-    log: logging.Logger):
+    data_folder: str, case: str, 
+    log: logging.Logger, 
+    num_train: int, num_test: int):
     case_file = data_folder + case + '.m'
     case_data = matpower_parser.create_model_data_dict(case_file)
     log.info('Parsed case file')
@@ -50,15 +53,10 @@ def load_training_data_from_mat(
     va_ref = jnp.array([bus[1]['va'] for (i, bus) in enumerate(buses) if i in ref_bus_idx]).squeeze(-1)
     log.info('Bus info parsed')
     
-    
-    
-    # train_ds = OPFDataset(
-    #     data_folder, 
-    #     case_name = case, 
-    #     split = 'train' 
-    # )
-    
-    # training_loader = DataLoader(train_ds, batch_size = 4, shuffle = True)
+    log.info('Reading training and testing data sets')
+    dataset = OPFDataset(data_folder, case_name = case)
+    get_samples(dataset, gens, buses, case_data, num_train, num_test)
+    log.info('ML data set created')
     
 
 # does not support DC lines and switches (ignore them for now)
@@ -190,3 +188,55 @@ def get_generator_info(data: dict):
     l_coeff = jnp.array([gen['p_cost']['values'][1] * mva_base for _, gen in gens])
     c_coeff = jnp.array([gen['p_cost']['values'][0] for _, gen in gens])
     return gens, gen_to_idx, idx_to_gen, p_min, p_max, q_min, q_max, q_coeff, l_coeff, c_coeff
+
+# split into training and testing data and return data 
+def get_samples(dataset: OPFDataset, 
+                 gens: list, 
+                 buses: list, 
+                 case_data: dict, 
+                 num_train: int, 
+                 num_test: int): 
+    
+    num_groups = 20
+    loads = [ (key, val) for key, val in case_data['elements']['load'].items() if val['in_service'] == True ]
+    idx_to_load = [ key for (key, _) in loads ]
+    load_to_idx = { x[0] : i for (i, x) in enumerate(loads) }
+    demand_train = np.zeros((num_train * num_groups, len(loads)), dtype=complex)
+    demand_test = np.zeros((num_test * num_groups, len(loads)), dtype=complex) 
+    gen_train = np.zeros((num_train * num_groups, len(gens)), dtype=complex) 
+    gen_test = np.zeros((num_test * num_groups, len(gens)), dtype=complex) 
+    v_train = np.zeros((num_train * num_groups, len(buses)), dtype=complex) 
+    v_test = np.zeros((num_test * num_groups, len(buses)), dtype=complex)
+    obj_train = np.zeros((num_train * num_groups), dtype=float)
+    obj_test = np.zeros((num_test * num_groups), dtype=float)
+    
+    for group in tqdm.tqdm(range(num_groups)): 
+        tmp_dir = pathlib.PurePath(
+            dataset.raw_dir,
+            'gridopt-dataset-tmp',
+            dataset._release,
+            dataset.case_name,
+            f'group_{group}')
+        files = sorted(pathlib.Path(tmp_dir).glob('*.json'))[:num_train+num_test]
+        train_files = files[:num_train]
+        test_files = files[num_train:(num_train+num_test)]
+        for (i, name) in enumerate(train_files):
+            j = i + group * num_train
+            with (open(name)) as f: 
+                obj = json.load(f)
+            grid = obj['grid']
+            solution = obj['solution']
+            demand_train[j, :] = [d[0] + d[1] * 1j for d in grid['nodes']['load']]
+            gen_train[j, :] = [g[0] + g[1] * 1j for g in solution['nodes']['generator']]
+            v_train[j, :] = [v[1] * math.cos(v[0]) + v[1] * math.sin(v[0]) * 1j for v in solution['nodes']['bus']]
+            obj_train[j] = obj['metadata']['objective']
+        for (i, name) in enumerate(test_files): 
+            j = i + group * num_test
+            with (open(name)) as f:
+                obj = json.load(f)
+            grid = obj['grid']
+            solution = obj['solution']
+            demand_test[j, :] = [d[0] + d[1] * 1j for d in grid['nodes']['load']]
+            gen_test[j, :] = [g[0] + g[1] * 1j for g in solution['nodes']['generator']]
+            v_test[j, :] = [v[1] * math.cos(v[0]) + v[1] * math.sin(v[0]) * 1j for v in solution['nodes']['bus']]  
+            obj_test[j] = obj['metadata']['objective']

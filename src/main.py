@@ -29,7 +29,8 @@ def main(
         log.error(f'File {data_path + case}.m does not exist')
         return
 
-    data = load_training_data_from_mat(data_path, case, log)
+    data = load_training_data_from_mat(
+        data_path, case, log, num_train_per_group, num_test_per_group)
     
 
 def get_logger(debug, warn, error): 
