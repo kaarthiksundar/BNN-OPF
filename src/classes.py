@@ -3,6 +3,8 @@
 from typing import Literal, List, Dict, Tuple
 from dataclasses import dataclass
 from scipy.sparse import csr_matrix
+import jax
+import numpy as np
 
     
 @dataclass
@@ -12,6 +14,29 @@ class BranchAdmittanceMatrix:
     idx: Tuple[int, int]
     thermal_limit: float 
 
+@dataclass 
+class Component: 
+    components: List 
+    component_to_idx: Dict
+    idx_to_component: List 
+
+@dataclass 
+class Limits: 
+    lower: jax.Array 
+    upper: jax.Array
+    
+@dataclass 
+class GenCostCoeff:
+    q: jax.Array 
+    l: jax.Array 
+    c: jax.Array 
+    
+@dataclass 
+class BusTypeIdx: 
+    ref: np.ndarray
+    non_ref: np.ndarray 
+    pv: np.ndarray 
+    pq: np.ndarray
 
 class OPFData():
     r"""The main class that holds all the network, training and testing data
@@ -54,55 +79,43 @@ class OPFData():
             'pglib_opf_case13659_pegase',
         ],
         case_data: Dict, 
-        buses: List, 
-        branches: List, 
-        gens: List, 
-        loads: List,
+        buses: Component, 
+        branches: Component, 
+        gens: Component, 
+        loads: Component,
         y_bus: csr_matrix, 
         y_branch: List[BranchAdmittanceMatrix], 
-        idx_to_bus: List,
-        bus_to_idx: Dict, 
-        idx_to_branch: List,
-        branch_to_idx: Dict,
-        idx_to_gen: List, 
-        gen_to_idx: Dict,
-        ref_bus_idx: List, 
-        non_ref_bus_idx: List, 
-        pv_bus_idx: List, 
-        pq_bus_idx: List, 
-        quad_cost_coeff: List, 
-        lin_cost_coeff: List, 
-        const_cost_coeff: List, 
-        p_min: List, 
-        p_max: List, 
-        q_min: List, 
-        q_max: List, 
-        v_min: List, 
-        v_max: List) -> None:
+        bus_type_idx: BusTypeIdx,
+        gen_cost: GenCostCoeff,
+        pg: Limits, 
+        qg: Limits, 
+        vm: Limits, 
+        va: Limits, 
+        ) -> None:
         # need to add va_ref
         
-        self.case_name = case_name
-        self.case_data = case_data
-        self.buses = buses
-        self.branches = branches 
-        self.gens = gens 
-        self.loads = loads
-        self.y_bus = y_bus 
-        self.y_branch = y_branch 
-        self.bus_to_idx = bus_to_idx
-        self.idx_to_bus = idx_to_bus 
-        self.branch_to_idx = branch_to_idx 
-        self.idx_to_branch = idx_to_branch 
-        self.ref_bus_idx = ref_bus_idx 
-        self.non_ref_bus_idx = non_ref_bus_idx 
-        self.pv_bus_idx = pv_bus_idx 
-        self.pq_bus_idx = pq_bus_idx 
-        self.quad_cost_coeff = quad_cost_coeff 
-        self.lin_cost_coeff = lin_cost_coeff 
-        self.const_cost_coeff = const_cost_coeff 
-        self.p_min = p_min 
-        self.p_max = p_max 
-        self.q_min = q_min 
-        self.q_max = q_max 
-        self.v_min = v_min 
-        self.v_max = v_max
+        # self.case_name = case_name
+        # self.case_data = case_data
+        # self.buses = buses
+        # self.branches = branches 
+        # self.gens = gens 
+        # self.loads = loads
+        # self.y_bus = y_bus 
+        # self.y_branch = y_branch 
+        # self.bus_to_idx = bus_to_idx
+        # self.idx_to_bus = idx_to_bus 
+        # self.branch_to_idx = branch_to_idx 
+        # self.idx_to_branch = idx_to_branch 
+        # self.ref_bus_idx = ref_bus_idx 
+        # self.non_ref_bus_idx = non_ref_bus_idx 
+        # self.pv_bus_idx = pv_bus_idx 
+        # self.pq_bus_idx = pq_bus_idx 
+        # self.quad_cost_coeff = quad_cost_coeff 
+        # self.lin_cost_coeff = lin_cost_coeff 
+        # self.const_cost_coeff = const_cost_coeff 
+        # self.p_min = p_min 
+        # self.p_max = p_max 
+        # self.q_min = q_min 
+        # self.q_max = q_max 
+        # self.v_min = v_min 
+        # self.v_max = v_max
