@@ -4,6 +4,7 @@ from typing import Literal, List, Dict, Tuple
 from dataclasses import dataclass
 from scipy.sparse import csr_matrix
 import jax
+import jax.numpy as jnp
 import numpy as np
  
 @dataclass
@@ -43,13 +44,25 @@ class Data:
     generation: np.ndarray
     voltage: np.ndarray 
     objective: np.ndarray
+    
+def get_X(data: Data) -> jax.Array: 
+    return jnp.array(np.concatenate([
+        np.real(data.demand),
+        np.imag(data.demand)
+        ], axis=1))
+    
+def get_Y(data: Data):
+    return jnp.array(np.concatenate([
+        np.real(data.generation), np.imag(data.generation), 
+        np.abs(data.voltage), np.angle(data.voltage)
+        ], axis=1))
+    
 
 class OPFData():
     r"""The main class that holds all the network, training and testing data
 
     :class:`OPFData` holds the network data, training and testing data for the 
     Bayesian Neural Networks
-
 
     Args:
         case_name (str): The name of the original pglib-opf case.
@@ -99,7 +112,6 @@ class OPFData():
         train: Data, 
         test: Data, 
         ) -> None:
-        # need to add va_ref
         
         self.case_name = case_name
         self.case_data = case_data
@@ -117,11 +129,7 @@ class OPFData():
         self.va_ref = va_ref
         self.train = train 
         self.test = test 
-        self.X = jnp.array(np.concatenate([
-            np.real(train.demand),
-            np.imag(train.demand)
-        ], axis=1)) 
-        self.Y = jnp.array(np.concatenate([
-            np.real(train.generation), np.imag(train.generation), 
-            np.abs(train.voltage), np.angle(train.voltage)
-        ], axis=1))
+        self.X_train = get_X(self.train)
+        self.Y_train = get_Y(self.train)
+        self.X_test = get_X(self.test)
+        self.Y_test = get_Y(self.test)

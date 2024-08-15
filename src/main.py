@@ -17,7 +17,8 @@ def main(
     num_test_per_group: Annotated[int, typer.Argument()] = 10,
     debug: Annotated[bool, typer.Option()] = False, 
     warn: Annotated[bool, typer.Option()] = False, 
-    error: Annotated[bool, typer.Option()] = False) -> None:
+    error: Annotated[bool, typer.Option()] = False, 
+    only_dl_flag: Annotated[bool, typer.Option()] = True) -> None:
     
     if (debug and warn) or (warn and error) or (debug and warn): 
         print(f'only one of --debug, --warn, --error flags can be set')
@@ -34,6 +35,9 @@ def main(
         num_train_per_group, num_test_per_group)
     
     log.info('OPFdata class populated and training data set parsed')
+    if (only_dl_flag == True):
+        log.info(f'Data downloaded and loaded, quitting because of only_dl_flag = {only_dl_flag}')
+        return
     
 
 def get_logger(debug, warn, error): 
