@@ -4,7 +4,7 @@ from pathlib import Path
 import logging
 
 from logger import CustomFormatter
-from dataloader import load_training_data_from_mat
+from dataloader import load_data
 
 
 app = typer.Typer()
@@ -29,8 +29,11 @@ def main(
         log.error(f'File {data_path + case}.m does not exist')
         return
 
-    data = load_training_data_from_mat(
-        data_path, case, log, num_train_per_group, num_test_per_group)
+    opf_data = load_data(
+        data_path, case, log, 
+        num_train_per_group, num_test_per_group)
+    
+    log.info('OPFdata class populated and training data set parsed')
     
 
 def get_logger(debug, warn, error): 

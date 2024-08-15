@@ -5,8 +5,7 @@ from dataclasses import dataclass
 from scipy.sparse import csr_matrix
 import jax
 import numpy as np
-
-    
+ 
 @dataclass
 class BranchAdmittanceMatrix: 
     admittance_matrix: csr_matrix 
@@ -38,6 +37,13 @@ class BusTypeIdx:
     pv: np.ndarray 
     pq: np.ndarray
 
+@dataclass 
+class Data: 
+    demand: np.ndarray 
+    generation: np.ndarray
+    voltage: np.ndarray 
+    objective: np.ndarray
+
 class OPFData():
     r"""The main class that holds all the network, training and testing data
 
@@ -48,21 +54,20 @@ class OPFData():
     Args:
         case_name (str): The name of the original pglib-opf case.
         case_data (dict): The EGRET case data parsed from the .m file 
+        buses (Component): buses with their id maps 
+        branches (Component): branches with their id maps
+        gens (Component): generators with their id maps
+        loads (Component): load with their id maps
         y_bus (csr_matrix): scipy sparse matrix for the bus admittance matrix
-        y_branch : list of 2x2 branch admittance matrices with their thermal limits 
-        idx_to_bus: id -> bus id (str) 
-        bus_to_idx: bus id (str) -> id 
-        idx_to_branch: id -> branch id (str)
-        branch_to_idx: branch id (str) -> id 
-        quad_cost_coeff: quadratic cost coefficients for the gen. cost 
-        lin_cost_coeff: linear cost coefficients for gen. cost 
-        const_cost_coeff: constant cost coefficients for the gen. cost 
-        pg_min: min. active generation limits
-        pg_max: max. active generation limits
-        qg_min: min. reactive generation limits  
-        qg_max: max. reactive generation limits
-        v_min: min. voltage magnitude limits  
-        v_max: max. voltage magnitude limits
+        y_branch (List[BranchAdmittanceMatrix]): list of 2x2 branch admittance matrices with their thermal limits 
+        bus_type_idx (BusTypeIdx): ref, non_ref, pv and pq bus ids 
+        gen_cost (GenCostCoeff): cost coefficient for the generators
+        pg_bounds (Limits): real power generation bounds 
+        qg_bounds (Limits): reactive power generation bounds 
+        vm_bounds (Limits): voltage magnitude bounds
+        va_ref (jax.Array): ref bus voltage angles (this are fixed)
+        train: Data, 
+        test: Data, 
     """
     def __init__(
         self, 
@@ -87,35 +92,36 @@ class OPFData():
         y_branch: List[BranchAdmittanceMatrix], 
         bus_type_idx: BusTypeIdx,
         gen_cost: GenCostCoeff,
-        pg: Limits, 
-        qg: Limits, 
-        vm: Limits, 
-        va: Limits, 
+        pg_bounds: Limits, 
+        qg_bounds: Limits, 
+        vm_bounds: Limits, 
+        va_ref: jax.Array,
+        train: Data, 
+        test: Data, 
         ) -> None:
         # need to add va_ref
         
-        # self.case_name = case_name
-        # self.case_data = case_data
-        # self.buses = buses
-        # self.branches = branches 
-        # self.gens = gens 
-        # self.loads = loads
-        # self.y_bus = y_bus 
-        # self.y_branch = y_branch 
-        # self.bus_to_idx = bus_to_idx
-        # self.idx_to_bus = idx_to_bus 
-        # self.branch_to_idx = branch_to_idx 
-        # self.idx_to_branch = idx_to_branch 
-        # self.ref_bus_idx = ref_bus_idx 
-        # self.non_ref_bus_idx = non_ref_bus_idx 
-        # self.pv_bus_idx = pv_bus_idx 
-        # self.pq_bus_idx = pq_bus_idx 
-        # self.quad_cost_coeff = quad_cost_coeff 
-        # self.lin_cost_coeff = lin_cost_coeff 
-        # self.const_cost_coeff = const_cost_coeff 
-        # self.p_min = p_min 
-        # self.p_max = p_max 
-        # self.q_min = q_min 
-        # self.q_max = q_max 
-        # self.v_min = v_min 
-        # self.v_max = v_max
+        self.case_name = case_name
+        self.case_data = case_data
+        self.buses = buses
+        self.branches = branches 
+        self.gens = gens 
+        self.loads = loads
+        self.y_bus = y_bus 
+        self.y_branch = y_branch 
+        self.bus_type_idx = bus_type_idx 
+        self.gen_cost = gen_cost 
+        self.pg_bounds = pg_bounds
+        self.qg_bounds = qg_bounds 
+        self.vm_bounds = vm_bounds 
+        self.va_ref = va_ref
+        self.train = train 
+        self.test = test 
+        self.X = jnp.array(np.concatenate([
+            np.real(train.demand),
+            np.imag(train.demand)
+        ], axis=1)) 
+        self.Y = jnp.array(np.concatenate([
+            np.real(train.generation), np.imag(train.generation), 
+            np.abs(train.voltage), np.angle(train.voltage)
+        ], axis=1))

@@ -9,14 +9,14 @@ from torch_geometric.loader import DataLoader
 import numpy as np
 import math
 from scipy.sparse import csr_matrix
-from classes import BranchAdmittanceMatrix
+from classes import BranchAdmittanceMatrix, Component, BusTypeIdx, GenCostCoeff, Data, Limits, OPFData
 import logging
 import jax.numpy as jnp
 import tqdm
 import pathlib
 import json
 
-def load_training_data_from_mat(
+def load_data(
     data_folder: str, case: str, 
     log: logging.Logger, 
     num_train: int, num_test: int):
@@ -55,8 +55,45 @@ def load_training_data_from_mat(
     
     log.info('Reading training and testing data sets')
     dataset = OPFDataset(data_folder, case_name = case)
-    get_samples(dataset, gens, buses, case_data, num_train, num_test)
+    sample_info = get_samples(dataset, gens, buses, case_data, num_train, num_test)
+    loads = sample_info[0] 
+    load_to_idx, idx_to_load = sample_info[1], sample_info[2] 
+    demand_train, gen_train, v_train, obj_train = sample_info[3]
+    demand_test, gen_test, v_test, obj_test = sample_info[4]
     log.info('ML data set created')
+    
+    # create components 
+    bus_components = Component(buses, bus_to_idx, idx_to_bus)
+    branch_components = Component(branches, branch_to_idx, idx_to_branch)
+    gen_components = Component(gens, gen_to_idx, idx_to_gen)
+    load_components = Component(loads, load_to_idx, idx_to_load)  
+    
+    # create bus type ids and generator cost coefficients
+    bus_type_idx = BusTypeIdx(ref_bus_idx, non_ref_bus_idx, pv_bus_idx, pq_bus_idx)
+    gen_cost = GenCostCoeff(q_cost_coeff, l_cost_coeff, c_cost_coeff)
+    
+    # training and testing dataset 
+    train = Data(demand_train, gen_train, v_train, obj_train) 
+    test = Data(demand_test, gen_test, v_test, obj_test)
+    
+    return OPFData(
+        case_name = case,
+        case_data = case_data, 
+        buses = bus_components,
+        branches = branch_components, 
+        gens = gen_components, 
+        loads = load_components, 
+        y_bus = y_bus,
+        y_branch = y_branch, 
+        bus_type_idx = bus_type_idx, 
+        gen_cost = gen_cost, 
+        pg_bounds = Limits(lower = p_min, upper = p_max),
+        qg_bounds = Limits(lower = q_min, upper = q_max),
+        vm_bounds = Limits(lower = v_min, upper = v_max), 
+        va_ref = va_ref,
+        train = train,  
+        test = test,
+    )
     
 
 # does not support DC lines and switches (ignore them for now)
@@ -189,6 +226,7 @@ def get_generator_info(data: dict):
     c_coeff = jnp.array([gen['p_cost']['values'][0] for _, gen in gens])
     return gens, gen_to_idx, idx_to_gen, p_min, p_max, q_min, q_max, q_coeff, l_coeff, c_coeff
 
+
 # split into training and testing data and return data 
 def get_samples(dataset: OPFDataset, 
                  gens: list, 
@@ -240,3 +278,8 @@ def get_samples(dataset: OPFDataset,
             gen_test[j, :] = [g[0] + g[1] * 1j for g in solution['nodes']['generator']]
             v_test[j, :] = [v[1] * math.cos(v[0]) + v[1] * math.sin(v[0]) * 1j for v in solution['nodes']['bus']]  
             obj_test[j] = obj['metadata']['objective']
+            
+    train = (demand_train, gen_train, v_train, obj_train)
+    test = (demand_test, gen_test, v_test, obj_test)
+            
+    return loads, load_to_idx, idx_to_load, train, test
