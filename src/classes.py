@@ -45,7 +45,11 @@ class Data:
     voltage: np.ndarray 
     objective: np.ndarray
     
-def get_X(data: Data) -> jax.Array: 
+@dataclass 
+class UnsupervisedData: 
+    demand: np.ndarray
+    
+def get_X(data: type[Data | UnsupervisedData]) -> jax.Array: 
     return jnp.array(np.concatenate([
         np.real(data.demand),
         np.imag(data.demand)
@@ -82,6 +86,7 @@ class OPFData():
         va_ref (jax.Array): ref bus voltage angles (this are fixed)
         train: Data, 
         test: Data, 
+        unsupervised: UnsupervisedData
     """
     def __init__(
         self, 
@@ -112,6 +117,7 @@ class OPFData():
         va_ref: jax.Array,
         train: Data, 
         test: Data, 
+        unsupervised: UnsupervisedData,
         ) -> None:
         
         self.case_name = case_name
@@ -132,10 +138,12 @@ class OPFData():
         self.va_ref = va_ref
         self.train = train 
         self.test = test 
+        self.unsupervised = unsupervised
         self.X_train = get_X(self.train)
         self.Y_train = get_Y(self.train)
         self.X_test = get_X(self.test)
         self.Y_test = get_Y(self.test)
+        self.X_unsupervised = get_X(self.unsupervised)
         
     def get_num_buses(self) -> int:
         return len(self.buses.components)

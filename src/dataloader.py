@@ -9,7 +9,7 @@ from torch_geometric.loader import DataLoader
 import numpy as np
 import math
 from scipy.sparse import csr_matrix
-from classes import BranchAdmittanceMatrix, Component, BusTypeIdx, GenCostCoeff, Data, Limits, OPFData
+from classes import BranchAdmittanceMatrix, Component, BusTypeIdx, GenCostCoeff, Data, UnsupervisedData, Limits, OPFData
 import logging
 import jax.numpy as jnp
 import tqdm
@@ -19,7 +19,8 @@ import json
 def load_data(
     data_folder: str, case: str, 
     log: logging.Logger, 
-    num_train: int, num_test: int):
+    num_train: int, num_test: int, 
+    num_unsupervised: int):
     case_file = data_folder + case + '.m'
     case_data = matpower_parser.create_model_data_dict(case_file)
     log.info('Parsed case file')
@@ -55,11 +56,12 @@ def load_data(
     
     log.info('Reading training and testing data sets')
     dataset = OPFDataset(data_folder, case_name = case)
-    sample_info = get_samples(dataset, gens, buses, case_data, num_train, num_test)
+    sample_info = get_samples(dataset, gens, buses, case_data, num_train, num_test, num_unsupervised)
     loads = sample_info[0] 
     load_to_idx, idx_to_load = sample_info[1], sample_info[2] 
     demand_train, gen_train, v_train, obj_train = sample_info[3]
     demand_test, gen_test, v_test, obj_test = sample_info[4]
+    demand_unsupervised = sample_info[5]
     log.info('ML data set created')
     
     # create components 
@@ -75,6 +77,7 @@ def load_data(
     # training and testing dataset 
     train = Data(demand_train, gen_train, v_train, obj_train) 
     test = Data(demand_test, gen_test, v_test, obj_test)
+    unsupervised = UnsupervisedData(demand_unsupervised)
     
     return OPFData(
         case_name = case,
@@ -93,6 +96,7 @@ def load_data(
         va_ref = va_ref,
         train = train,  
         test = test,
+        unsupervised = unsupervised
     )
     
 # does not support DC lines and switches (ignore them for now)
@@ -225,14 +229,14 @@ def get_generator_info(data: dict):
     c_coeff = jnp.array([gen['p_cost']['values'][0] for _, gen in gens])
     return gens, gen_to_idx, idx_to_gen, p_min, p_max, q_min, q_max, q_coeff, l_coeff, c_coeff
 
-
 # split into training and testing data and return data 
 def get_samples(dataset: OPFDataset, 
                  gens: list, 
                  buses: list, 
                  case_data: dict, 
                  num_train: int, 
-                 num_test: int): 
+                 num_test: int, 
+                 num_unsupervised: int): 
     
     num_groups = 20
     loads = [ (key, val) for key, val in case_data['elements']['load'].items() if val['in_service'] == True ]
@@ -240,13 +244,14 @@ def get_samples(dataset: OPFDataset,
     load_to_idx = { x[0] : i for (i, x) in enumerate(loads) }
     demand_train = np.zeros((num_train * num_groups, len(loads)), dtype=complex)
     demand_test = np.zeros((num_test * num_groups, len(loads)), dtype=complex) 
+    demand_unsupervised = np.zeros((num_unsupervised * num_groups, len(loads)), dtype=complex)
     gen_train = np.zeros((num_train * num_groups, len(gens)), dtype=complex) 
     gen_test = np.zeros((num_test * num_groups, len(gens)), dtype=complex) 
     v_train = np.zeros((num_train * num_groups, len(buses)), dtype=complex) 
     v_test = np.zeros((num_test * num_groups, len(buses)), dtype=complex)
     obj_train = np.zeros((num_train * num_groups), dtype=float)
     obj_test = np.zeros((num_test * num_groups), dtype=float)
-    
+
     for group in tqdm.tqdm(range(num_groups)): 
         tmp_dir = pathlib.PurePath(
             dataset.raw_dir,
@@ -254,11 +259,15 @@ def get_samples(dataset: OPFDataset,
             dataset._release,
             dataset.case_name,
             f'group_{group}')
-        files = sorted(pathlib.Path(tmp_dir).glob('*.json'))[:num_train+num_test]
-        train_files = files[:num_train]
-        test_files = files[num_train:(num_train+num_test)]
+        files = sorted(pathlib.Path(tmp_dir).glob('*.json'))[:num_train+num_test+num_unsupervised]
+        tr = num_train 
+        te = num_test 
+        us = num_unsupervised
+        train_files = files[:tr]
+        test_files = files[tr:(tr+te)]
+        unsupervised_files = files[(tr+te):(tr+te+us)]
         for (i, name) in enumerate(train_files):
-            j = i + group * num_train
+            j = i + group * tr
             with (open(name)) as f: 
                 obj = json.load(f)
             grid = obj['grid']
@@ -268,7 +277,7 @@ def get_samples(dataset: OPFDataset,
             v_train[j, :] = [v[1] * math.cos(v[0]) + v[1] * math.sin(v[0]) * 1j for v in solution['nodes']['bus']]
             obj_train[j] = obj['metadata']['objective']
         for (i, name) in enumerate(test_files): 
-            j = i + group * num_test
+            j = i + group * te
             with (open(name)) as f:
                 obj = json.load(f)
             grid = obj['grid']
@@ -277,8 +286,15 @@ def get_samples(dataset: OPFDataset,
             gen_test[j, :] = [g[0] + g[1] * 1j for g in solution['nodes']['generator']]
             v_test[j, :] = [v[1] * math.cos(v[0]) + v[1] * math.sin(v[0]) * 1j for v in solution['nodes']['bus']]  
             obj_test[j] = obj['metadata']['objective']
+        for (i, name) in enumerate(unsupervised_files): 
+            j = i + group * us
+            with (open(name)) as f: 
+                obj = json.load(f)
+            grid = obj['grid']
+            demand_unsupervised[j, :] = [d[0] + d[1] * 1j for d in grid['nodes']['load']]
             
     train = (demand_train, gen_train, v_train, obj_train)
     test = (demand_test, gen_test, v_test, obj_test)
+    unsupervised = demand_unsupervised
             
-    return loads, load_to_idx, idx_to_load, train, test
+    return loads, load_to_idx, idx_to_load, train, test, unsupervised

@@ -12,20 +12,27 @@ app = typer.Typer()
 
 @app.command()
 def main(
-    data_path: Annotated[str, typer.Argument()] = './data/', 
-    case: Annotated[str, typer.Argument()] = 'pglib_opf_case14_ieee',
-    num_train_per_group: Annotated[int, typer.Argument()] = 50, 
-    num_test_per_group: Annotated[int, typer.Argument()] = 10,
+    data_path: Annotated[str, typer.Option('--datapath', '-p')] = './data/', 
+    case: Annotated[str, typer.Option('--case', '-c')] = 'pglib_opf_case14_ieee',
+    num_train_per_group: Annotated[int, typer.Option('--train', '-r')] = 50, 
+    num_test_per_group: Annotated[int, typer.Option('--test', '-e')] = 10,
+    num_unsupervised_per_group: Annotated[int, typer.Option('--unsupervised', '-u')] = 100, 
     debug: Annotated[bool, typer.Option()] = False, 
     warn: Annotated[bool, typer.Option()] = False, 
     error: Annotated[bool, typer.Option()] = False, 
-    only_dl_flag: Annotated[bool, typer.Option()] = True) -> None:
+    only_dl_flag: Annotated[bool, typer.Option('--onlydl')] = False) -> None:
     
     if (debug and warn) or (warn and error) or (debug and warn): 
         print(f'only one of --debug, --warn, --error flags can be set')
         return 
 
     log = get_logger(debug, warn, error)
+    count = num_train_per_group + num_test_per_group + num_unsupervised_per_group
+    if (count > 15000):
+        log.error('One group contains only 15000 data points')
+        log.error('Ensure (--train) + (--test) + (--unsupervised) <= 15000')
+        log.error(f'current value: {count}')
+        return
     
     if (Path(data_path + case + '.m').is_file() == False): 
         log.error(f'File {data_path + case}.m does not exist')
@@ -34,7 +41,9 @@ def main(
     log.info(f'num train per group: {num_train_per_group}')
     opf_data = load_data(
         data_path, case, log, 
-        num_train_per_group, num_test_per_group)
+        num_train_per_group, 
+        num_test_per_group, 
+        num_unsupervised_per_group)
     
     log.info('OPFdata class populated and training data set parsed')
     if (only_dl_flag == True):
