@@ -95,7 +95,6 @@ def load_data(
         test = test,
     )
     
-
 # does not support DC lines and switches (ignore them for now)
 def construct_admittance_matrix(data: dict):
     mva_base = data['elements']['generator']['1']['mbase']
@@ -176,10 +175,10 @@ def construct_admittance_matrix(data: dict):
         
         I.append(t_bus)
         J.append(t_bus)
-        V.append(y + lc_to)  
+        V.append(y + lc_to)
         I_branch.append(1)
         J_branch.append(1)
-        V_branch.append(y + lc_to)     
+        V_branch.append(y + lc_to)    
         
         val = np.array(V_branch, dtype=complex)
         row = np.array(I_branch, dtype=int)

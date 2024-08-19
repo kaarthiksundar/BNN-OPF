@@ -51,6 +51,7 @@ def get_X(data: Data) -> jax.Array:
         np.imag(data.demand)
         ], axis=1))
     
+# output data  arranged as [pg, qg, vm, va]
 def get_Y(data: Data):
     return jnp.array(np.concatenate([
         np.real(data.generation), np.imag(data.generation), 
@@ -119,6 +120,8 @@ class OPFData():
         self.branches = branches 
         self.gens = gens 
         self.loads = loads
+        self.gen_bus_idx = [buses.component_to_idx[gen['bus']] for (_, gen) in gens.components] 
+        self.load_bus_idx = [buses.component_to_idx[load['bus']] for (_, load) in loads.components]
         self.y_bus = y_bus 
         self.y_branch = y_branch 
         self.bus_type_idx = bus_type_idx 
@@ -133,3 +136,12 @@ class OPFData():
         self.Y_train = get_Y(self.train)
         self.X_test = get_X(self.test)
         self.Y_test = get_Y(self.test)
+        
+    def get_num_buses(self) -> int:
+        return len(self.buses.components)
+    
+    def get_num_gens(self) -> int: 
+        return len(self.gens.components)
+    
+    def get_num_loads(self) -> int: 
+        return len(self.loads.components)
