@@ -6,6 +6,7 @@ from scipy.sparse import csr_matrix
 import jax
 import jax.numpy as jnp
 import numpy as np
+from collections import namedtuple
  
 @dataclass
 class BranchAdmittanceMatrix: 
@@ -48,7 +49,8 @@ class Data:
 @dataclass 
 class UnsupervisedData: 
     demand: np.ndarray
-    
+
+# input data arranged as [pd, qd] 
 def get_X(data: type[Data | UnsupervisedData]) -> jax.Array: 
     return jnp.array(np.concatenate([
         np.real(data.demand),
@@ -56,12 +58,17 @@ def get_X(data: type[Data | UnsupervisedData]) -> jax.Array:
         ], axis=1))
     
 # output data  arranged as [pg, qg, vm, va]
-def get_Y(data: Data):
+def get_Y(data: Data) -> jax.Array:
     return jnp.array(np.concatenate([
         np.real(data.generation), np.imag(data.generation), 
         np.abs(data.voltage), np.angle(data.voltage)
         ], axis=1))
     
+# normalization values for data 
+def get_mean(val: jax.Array) -> jax.Array: 
+    return jnp.mean(val, axis=0)
+def get_std(val: jax.Array) -> jax.Array:
+    return jnp.std(val, axis=0) + 1e-6
 
 class OPFData():
     r"""The main class that holds all the network, training and testing data
@@ -144,6 +151,16 @@ class OPFData():
         self.X_test = get_X(self.test)
         self.Y_test = get_Y(self.test)
         self.X_unsupervised = get_X(self.unsupervised)
+        X_data = jnp.concatenate([self.X_train, self.X_unsupervised], axis=0)
+        self.X_mean = get_mean(X_data)
+        self.X_std = get_std(X_data)
+        self.Y_mean = get_mean(self.Y_train)
+        self.Y_std = get_std(self.Y_train)
+        self.X_train_norm = (self.X_train - self.X_mean) / self.X_std 
+        self.X_test_norm = (self.X_test - self.X_mean) / self.X_std 
+        self.X_unsupervised_norm = (self.X_unsupervised - self.X_mean) / self.X_std 
+        self.Y_train_norm = (self.Y_train - self.Y_mean) / self.Y_std 
+        self.Y_test_norm = (self.Y_test - self.Y_mean) / self.Y_std
         
     def get_num_buses(self) -> int:
         return len(self.buses.components)

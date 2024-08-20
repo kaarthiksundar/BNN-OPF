@@ -27,7 +27,7 @@ def get_objective_value(Y, opf_data) -> jax.Array:
     return cost
 
 # evaluate equality constraint residuals given input and output data (PF constraints)
-def get_equality_constraint_violations(X, Y, opf_data, log) -> jax.Array: 
+def get_equality_constraint_violations(X, Y, opf_data) -> jax.Array: 
     pg, qg, vm, va = get_output_variables(Y, opf_data)
     pd, qd = get_input_variables(X, opf_data)
     # voltage shape: (num_samples * num_buses)
@@ -40,11 +40,10 @@ def get_equality_constraint_violations(X, Y, opf_data, log) -> jax.Array:
         (pd.shape[0], opf_data.get_num_buses()), dtype=complex
         ).at[:, opf_data.load_bus_idx].set(pd + 1j * qd)
     residual = generation - load - bus_injection 
-    log.debug(f'violation (=) computed, max(abs(violation)): {np.max(np.abs(residual))}')
     return jnp.concatenate([np.real(residual), np.imag(residual)], axis=1)
 
 # evaluate inequality constraint residuals given input and output data (variable bounds)
-def get_inequality_constraint_violations(Y, opf_data, log, line_limits = False) -> jax.Array:
+def get_inequality_constraint_violations(Y, opf_data, line_limits = False) -> jax.Array:
     pg, qg, vm, va = get_output_variables(Y, opf_data)
     pg_lower = jnp.maximum(opf_data.pg_bounds.lower - pg, 0.0)
     pg_upper = jnp.maximum(pg - opf_data.pg_bounds.upper, 0.0)
@@ -58,7 +57,6 @@ def get_inequality_constraint_violations(Y, opf_data, log, line_limits = False) 
             qg_lower, qg_upper, 
             vm_lower, vm_upper
         ], axis=1)
-        log.debug(f'violation (>=, <=) computed, max(abs(violation)): {np.max(np.abs(residual))}')
         return residual
     # compute branch flow (do calculation later)
     branch_flow = jnp.array([
@@ -86,3 +84,10 @@ def get_inequality_constraint_violations(Y, opf_data, log, line_limits = False) 
         for y_branch in opf_data.y_branch
     ])
     pass
+
+# Physics-driven Loss function evaluation, X Y should be un-normalised data 
+def assess_feasibility(X, Y, opf_data, eq_weight = 1.0, ineq_weight = 1.0):
+    eq = get_equality_constraint_violations(X, Y, opf_data)
+    ineq = get_inequality_constraint_violations(Y, opf_data)
+    return eq_weight * (eq**2).sum(axis=1) + ineq_weight * (ineq**2).sum(axis=1)
+    

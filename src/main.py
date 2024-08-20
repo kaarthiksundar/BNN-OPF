@@ -6,6 +6,7 @@ import logging
 from logger import CustomFormatter
 from dataloader import load_data
 from acopf import *
+from bnn import *
 
 
 app = typer.Typer()
@@ -49,15 +50,8 @@ def main(
     if (only_dl_flag == True):
         log.info(f'Data downloaded and loaded, quitting because of only_dl_flag = {only_dl_flag}')
         return
-    
-    eq_violation = get_equality_constraint_violations(
-        opf_data.X_train, 
-        opf_data.Y_train, 
-        opf_data, log)
-    
-    ineq_violation = get_inequality_constraint_violations(
-        opf_data.Y_train, opf_data, log
-    )
+
+    model_params = get_model_params(opf_data)
     
 
 def get_logger(debug, warn, error): 
