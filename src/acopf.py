@@ -31,7 +31,7 @@ def get_equality_constraint_violations(X, Y, opf_data) -> jax.Array:
     pg, qg, vm, va = get_output_variables(Y, opf_data)
     pd, qd = get_input_variables(X, opf_data)
     # voltage shape: (num_samples * num_buses)
-    voltage = vm * np.cos(va) + 1j * vm * np.sin(va)
+    voltage = vm * jnp.cos(va) + 1j * vm * jnp.sin(va)
     bus_injection = np.multiply(voltage, np.conjugate(voltage * np.transpose(opf_data.y_bus)))
     generation = jnp.zeros(
         (pg.shape[0], opf_data.get_num_buses()), dtype=complex
@@ -40,7 +40,7 @@ def get_equality_constraint_violations(X, Y, opf_data) -> jax.Array:
         (pd.shape[0], opf_data.get_num_buses()), dtype=complex
         ).at[:, opf_data.load_bus_idx].set(pd + 1j * qd)
     residual = generation - load - bus_injection 
-    return jnp.concatenate([np.real(residual), np.imag(residual)], axis=1)
+    return jnp.concatenate([jnp.real(residual), jnp.imag(residual)], axis=1)
 
 # evaluate inequality constraint residuals given input and output data (variable bounds)
 def get_inequality_constraint_violations(Y, opf_data, line_limits = False) -> jax.Array:

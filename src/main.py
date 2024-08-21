@@ -6,7 +6,8 @@ import logging
 from logger import CustomFormatter
 from dataloader import load_data
 from acopf import *
-from bnn import *
+from bnncommon import *
+from supervisedmodel import supervised_run
 
 
 app = typer.Typer()
@@ -16,8 +17,8 @@ def main(
     data_path: Annotated[str, typer.Option('--datapath', '-p')] = './data/', 
     case: Annotated[str, typer.Option('--case', '-c')] = 'pglib_opf_case14_ieee',
     num_train_per_group: Annotated[int, typer.Option('--train', '-r')] = 50, 
-    num_test_per_group: Annotated[int, typer.Option('--test', '-e')] = 10,
-    num_unsupervised_per_group: Annotated[int, typer.Option('--unsupervised', '-u')] = 100, 
+    num_test_per_group: Annotated[int, typer.Option('--test', '-e')] = 20,
+    num_unsupervised_per_group: Annotated[int, typer.Option('--unsupervised', '-u')] = 500, 
     debug: Annotated[bool, typer.Option()] = False, 
     warn: Annotated[bool, typer.Option()] = False, 
     error: Annotated[bool, typer.Option()] = False, 
@@ -51,7 +52,7 @@ def main(
         log.info(f'Data downloaded and loaded, quitting because of only_dl_flag = {only_dl_flag}')
         return
 
-    model_params = get_model_params(opf_data)
+    supervised_run(opf_data, log)
     
 
 def get_logger(debug, warn, error): 
