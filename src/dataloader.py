@@ -5,7 +5,6 @@
     
 import egret.parsers.matpower_parser as matpower_parser
 from torch_geometric.datasets import OPFDataset 
-from torch_geometric.loader import DataLoader
 import numpy as np
 import math
 from scipy.sparse import csr_matrix
@@ -121,7 +120,7 @@ def construct_admittance_matrix(data: dict):
     J = []
     V = []
 
-    for (i, branch) in branches:
+    for (_, branch) in branches:
         if (branch['in_service'] == False): 
             continue
         from_bus = branch['from_bus']
@@ -134,12 +133,8 @@ def construct_admittance_matrix(data: dict):
         f_bus = bus_to_idx[from_bus]
         t_bus = bus_to_idx[to_bus]
         
-        I_branch = [] 
-        J_branch = [] 
-        V_branch = [] 
         bus_pair = (from_bus, to_bus)
         idx_pair = (f_bus, t_bus)
-        
         
         rs = branch['resistance']
         xs = branch['reactance']
@@ -155,40 +150,29 @@ def construct_admittance_matrix(data: dict):
         tr = tau * math.cos(math.radians(shift))
         ti = tau * math.sin(math.radians(shift))
         t = tr + ti * 1j 
-
+        a = (y + lc_fr)/(t.real**2 + t.imag**2) 
+        b = -y/np.conjugate(t) 
+        c = -(y/t) 
+        d = y + lc_to
+        
         I.append(f_bus)
         J.append(t_bus)
-        V.append(-y/np.conjugate(t))
-        I_branch.append(0)
-        J_branch.append(1)
-        V_branch.append(-y/np.conjugate(t))
+        V.append(b)
 
         I.append(t_bus)
         J.append(f_bus)
-        V.append(-(y/t))
-        I_branch.append(1)
-        J_branch.append(0)
-        V_branch.append(-(y/t))
+        V.append(c)
         
         I.append(f_bus)
         J.append(f_bus)
-        V.append((y + lc_fr)/(t.real**2 + t.imag**2))
-        I_branch.append(0)
-        J_branch.append(0)
-        V_branch.append((y + lc_fr)/(t.real**2 + t.imag**2))
+        V.append(a)
         
         I.append(t_bus)
         J.append(t_bus)
-        V.append(y + lc_to)
-        I_branch.append(1)
-        J_branch.append(1)
-        V_branch.append(y + lc_to)    
+        V.append(d)
         
-        val = np.array(V_branch, dtype=complex)
-        row = np.array(I_branch, dtype=int)
-        col = np.array(J_branch, dtype=int)
         branch_matrix_list.append(BranchAdmittanceMatrix(
-            admittance_matrix = csr_matrix((val, (row, col)), shape=(2, 2)),
+            admittance_matrix = jnp.array([[a, b], [c, d]], dtype=complex),
             bus = bus_pair, 
             idx = idx_pair,
             thermal_limit = branch['rating_long_term']/mva_base)
@@ -196,7 +180,7 @@ def construct_admittance_matrix(data: dict):
         
     y_branch = branch_matrix_list
 
-    for (i, shunt) in data['elements']['shunt'].items():
+    for (_, shunt) in data['elements']['shunt'].items():
         shunt_bus = shunt['bus']
         bus = bus_to_idx[shunt_bus]
         ys = shunt['gs'] / mva_base + shunt['bs'] / mva_base * 1j

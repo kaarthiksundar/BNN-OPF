@@ -10,7 +10,7 @@ from collections import namedtuple
  
 @dataclass
 class BranchAdmittanceMatrix: 
-    admittance_matrix: csr_matrix 
+    admittance_matrix: jax.Array 
     bus: Tuple[str, str]
     idx: Tuple[int, int]
     thermal_limit: float 
