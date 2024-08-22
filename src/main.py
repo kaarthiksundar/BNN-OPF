@@ -15,9 +15,9 @@ app = typer.Typer()
 @app.command()
 def main(
     data_path: Annotated[str, typer.Option('--datapath', '-p')] = './data/', 
-    case: Annotated[str, typer.Option('--case', '-c')] = 'pglib_opf_case14_ieee',
+    case: Annotated[str, typer.Option('--case', '-c')] = 'pglib_opf_case57_ieee',
     num_train_per_group: Annotated[int, typer.Option('--train', '-r')] = 1,#50, 
-    num_test_per_group: Annotated[int, typer.Option('--test', '-e')] = 2, #20,
+    num_test_per_group: Annotated[int, typer.Option('--test', '-e')] = 20,
     num_unsupervised_per_group: Annotated[int, typer.Option('--unsupervised', '-u')] = 1, #500, 
     debug: Annotated[bool, typer.Option()] = False, 
     warn: Annotated[bool, typer.Option()] = False, 

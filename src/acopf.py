@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax.experimental import sparse
+from jaxrelated import *
 
 # AC-OPF helper functions
 # get input variables into individual parts
@@ -33,10 +34,12 @@ def get_equality_constraint_violations(X, Y, opf_data) -> jax.Array:
     pd, qd = get_input_variables(X, opf_data)
     # voltage shape: (num_samples * num_buses)
     voltage = vm * jnp.cos(va) + 1j * vm * jnp.sin(va)
+    y_bus = sparse.BCOO.from_scipy_sparse(opf_data.y_bus)
     bus_injection = jnp.multiply(
         voltage, 
         jnp.conjugate(
-            jnp.matmul(voltage, sparse.BCOO.from_scipy_sparse(opf_data.y_bus).transpose().todense())
+            sd_matmul(y_bus, voltage.transpose(), y_bus.shape[0]).transpose()
+            # jnp.matmul(voltage, sparse.BCOO.from_scipy_sparse(opf_data.y_bus).transpose().todense())
             )
         )
     generation = jnp.zeros(
