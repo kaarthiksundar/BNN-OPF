@@ -7,6 +7,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from collections import namedtuple
+
+@dataclass 
+class SampleCounts:
+    num_groups: int 
+    num_train_per_group: int 
+    num_test_per_group: int 
+    num_unsupervised_per_group: int 
+    batch_size: int
  
 @dataclass
 class BranchAdmittanceMatrix: 
@@ -94,6 +102,7 @@ class OPFData():
         train: Data, 
         test: Data, 
         unsupervised: UnsupervisedData
+        batch_size: int
     """
     def __init__(
         self, 
@@ -125,6 +134,7 @@ class OPFData():
         train: Data, 
         test: Data, 
         unsupervised: UnsupervisedData,
+        batch_size: int
         ) -> None:
         
         self.case_name = case_name
@@ -146,6 +156,8 @@ class OPFData():
         self.train = train 
         self.test = test 
         self.unsupervised = unsupervised
+        self.batch_size = batch_size
+        self.num_batches = len(range(0, train.shape[0], self.batch_size))
         self.X_train = get_X(self.train)
         self.Y_train = get_Y(self.train)
         self.X_test = get_X(self.test)
@@ -170,3 +182,37 @@ class OPFData():
     
     def get_num_loads(self) -> int: 
         return len(self.loads.components)
+    
+    def get_batch(self, i: int, io: str, norm: bool, ru: str) -> jax.Array: 
+        """ get the batched data
+
+        Args:
+            i (int): batch number (0 <= i < self.num_batches)
+            io (str): 'i' means input X, 'o' means output Y
+            norm (bool): True means normalized, False means un-normalized
+            ru (str): 'r' means train, 'u' means unsupervised. 
+            
+            it is not possible to have ru = 'u' and io = 'o'
+
+        Returns:
+            jax.Array: corresponding jax Array
+        """
+        assert(i < self.num_batches)
+        fr = i 
+        to = i + self.batch_size
+        if io == 'i': 
+            if res == 'r': 
+                if norm: 
+                    return X_train_norm[fr:to] 
+                else: 
+                    return X_train[fr:to] 
+            else: 
+                if norm: 
+                    return X_unsupervised_norm[fr:to]
+                else:
+                    return X_unsupervised[fr:to]
+        else: 
+            if norm: 
+                return Y_train_norm[fr:to]
+            else: 
+                return Y_train[fr:to]

@@ -8,7 +8,8 @@ from torch_geometric.datasets import OPFDataset
 import numpy as np
 import math
 from scipy.sparse import csr_matrix
-from classes import BranchAdmittanceMatrix, Component, BusTypeIdx, GenCostCoeff, Data, UnsupervisedData, Limits, OPFData
+from classes import BranchAdmittanceMatrix, Component, BusTypeIdx, GenCostCoeff 
+from classes import Data, UnsupervisedData, Limits, OPFData, SampleCounts
 import logging
 import jax.numpy as jnp
 import tqdm
@@ -18,8 +19,8 @@ import json
 def load_data(
     data_folder: str, case: str, 
     log: logging.Logger, 
-    num_train: int, num_test: int, 
-    num_unsupervised: int):
+    sample_counts: SampleCounts):
+    
     case_file = data_folder + case + '.m'
     case_data = matpower_parser.create_model_data_dict(case_file)
     log.info('Parsed case file')
@@ -53,15 +54,15 @@ def load_data(
     va_ref = jnp.array([bus[1]['va'] for (i, bus) in enumerate(buses) if i in ref_bus_idx]).squeeze(-1)
     log.info('Bus info parsed')
     
-    log.info('Reading training and testing data sets')
-    dataset = OPFDataset(data_folder, case_name = case)
-    sample_info = get_samples(dataset, gens, buses, case_data, num_train, num_test, num_unsupervised)
+    log.info('Reading dataset')
+    dataset = OPFDataset(data_folder, case_name = case, num_groups = sample_counts.num_groups)
+    sample_info = get_samples(dataset, gens, buses, case_data, sample_counts)
     loads = sample_info[0] 
     load_to_idx, idx_to_load = sample_info[1], sample_info[2] 
     demand_train, gen_train, v_train, obj_train = sample_info[3]
     demand_test, gen_test, v_test, obj_test = sample_info[4]
     demand_unsupervised = sample_info[5]
-    log.info('ML data set created')
+    log.info('Dataset parsed and organized')
     
     # create components 
     bus_components = Component(buses, bus_to_idx, idx_to_bus)
@@ -95,7 +96,8 @@ def load_data(
         va_ref = va_ref,
         train = train,  
         test = test,
-        unsupervised = unsupervised
+        unsupervised = unsupervised, 
+        batch_size = sample_counts.batch_size
     )
     
 # does not support DC lines and switches (ignore them for now)
@@ -218,11 +220,12 @@ def get_samples(dataset: OPFDataset,
                  gens: list, 
                  buses: list, 
                  case_data: dict, 
-                 num_train: int, 
-                 num_test: int, 
-                 num_unsupervised: int): 
+                 sample_counts: SampleCounts): 
     
-    num_groups = 20
+    num_groups = sample_counts.num_groups 
+    num_train = sample_counts.num_train_per_group 
+    num_test = sample_counts.num_test_per_group 
+    num_unsupervised = sample_counts.num_unsupervised_per_group
     loads = [ (key, val) for key, val in case_data['elements']['load'].items() if val['in_service'] == True ]
     idx_to_load = [ key for (key, _) in loads ]
     load_to_idx = { x[0] : i for (i, x) in enumerate(loads) }

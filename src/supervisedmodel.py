@@ -12,13 +12,14 @@ from numpyro.infer import Predictive, SVI, Trace_ELBO, TraceGraph_ELBO, TraceMea
 from jax import random
 from jax import jit
 import jax
+import time
 from sklearn.metrics import mean_squared_error
 
 # supervised model definition 
-def supervised_model(opf_data: OPFData, vi_parameters = None): 
+def supervised_model(opf_data: OPFData, batch_id: int, vi_parameters = None): 
     params = get_model_params(opf_data)
-    X_norm = opf_data.X_train_norm  
-    X = opf_data.X_train
+    X_norm = opf_data.get_batch(batch_id, 'i', True, 'r') # opf_data.X_train_norm  
+    X = opf_data.get_batch(batch_id, 'i', False, 'r') # opf_data.X_train
     num_data_points, num_inputs = X_norm.shape
     num_layers = params['num_layers']
     num_nodes_per_layer = params['num_nodes_per_hidden_layer']
@@ -42,7 +43,7 @@ def supervised_model(opf_data: OPFData, vi_parameters = None):
     z = OrderedDict([ (name, create_block(name)) for name in params['output_block_dim'].keys() ])
     z_e = jnp.concatenate(list(z.values()), axis=-1)
     z_e = z_e * opf_data.Y_std + opf_data.Y_mean
-    Y = opf_data.Y_train
+    Y = opf_data.get_batch(batch_id, 'o', False, 'r') # opf_data.Y_train
     L_predict = assess_feasibility(X, z_e, opf_data)
     L_true = assess_feasibility(X, Y, opf_data)
     
@@ -60,7 +61,7 @@ def supervised_model(opf_data: OPFData, vi_parameters = None):
         numpyro.sample('L', dist.Normal(L_predict, likelihood_std['pg'] * 0.01), obs=L_true)
      
 # supervised testing model definition
-def supervised_testing_model(opf_data: OPFData, vi_parameters = None):
+def supervised_testing_model(opf_data: OPFData, batch_id: int, vi_parameters = None):
     params = get_model_params(opf_data)
     X_norm = opf_data.X_test_norm  
     X = opf_data.X_test
@@ -98,11 +99,11 @@ def supervised_testing_model(opf_data: OPFData, vi_parameters = None):
             numpyro.sample(f'Y_{name}', dist.Normal(z[name], likelihood_std[name]).to_event(1), obs=None)
 
 # initial guide does not require vi_parameters
-def supervised_guide(opf_data: OPFData, vi_parameters = None):
+def supervised_guide(opf_data: OPFData, batch_id: int, vi_parameters = None):
     vi_params = vi_parameters if vi_parameters is not None else dict()
     params = get_model_params(opf_data)
-    X_norm = opf_data.X_train_norm  
-    X = opf_data.X_train
+    X_norm = opf_data.get_batch(batch_id, 'i', True, 'r') # opf_data.X_train_norm  
+    X = opf_data.get_batch(batch_id, 'i', False, 'r') # opf_data.X_train
     num_data_points, num_inputs = X_norm.shape
     num_layers = params['num_layers']
     num_nodes_per_layer = params['num_nodes_per_hidden_layer']
@@ -171,7 +172,7 @@ def supervised_run(
     opf_data: OPFData, log, 
     initial_learning_rate = 1e-3, 
     decay_rate = 1e-4, 
-    max_training_time = 500.0, 
+    max_training_time = 10.0, 
     max_epochs = 200000):
     
     # initialize the optimizer
@@ -183,24 +184,35 @@ def supervised_run(
         supervised_model, 
         supervised_guide, 
         optimizer, 
-        loss = Trace_ELBO())
+        loss = TraceMeanField_ELBO())
     
     rng_key = random.PRNGKey(0)
     svi_state = svi.init(rng_key, opf_data)
-    log.debug(svi.get_params(svi_state))
+    log.info('SVI initialization complete')
+    
+    start_time = time.time()
+    losses = [] 
+    for epoch in range(max_epochs):
+        if time.time() - start_time > max_training_time: 
+            log.info('Maximum training time reached')
+            break 
+        epoch_losses = [] 
+        for i in range(opf_data.num_batches):
+            svi_state, loss = svi.update(svi_state, opf_data, i)
+            epoch_losses.append(loss)
+        mean_epoch_loss = np.mean(epoch_losses)
+        log.debug(f'epoch: {epoch}, mean loss: {mean_epoch_loss}')
+        losses.append(mean_epoch_losses)
+        if time.time() - start_time > max_training_time:
+            log.info('Maximum training time reached')
+            break
+    
+    
+    # log.debug(svi.get_params(svi_state))
     # svi_state, loss = svi.update(svi_state, opf_data)
     # log.debug(f'after update: {svi.get_params(svi_state)}')
     # log.debug(loss)
     # update_fn = jit(svi.update)
-    log.info('setup of SVI complete')
-    # svi_state = svi.run(rng_key, 30, opf_data, init_state = svi_state, init_params = svi.get_params(svi_state)).state
-    log.debug(f'X_train: {opf_data.X_train}')
-    log.debug(f'Y_train: {opf_data.Y_train}')
-    log.debug(f'X_train_norm: {opf_data.X_train_norm}')
-    log.debug(f'Y_train_norm: {opf_data.Y_train_norm}')
-    for i in range(30):
-        svi_state, loss = svi.update(svi_state,opf_data)
-        log.debug(f'loss: ${loss}')
 
     predictive = Predictive(model=supervised_testing_model, guide=supervised_guide, 
                             params=svi.get_params(svi_state), 

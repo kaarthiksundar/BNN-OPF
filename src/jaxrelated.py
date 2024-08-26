@@ -12,7 +12,6 @@ def sd_matmul(A, B, shape):
     Returns: 
         (nxk) dense matrix
     """
-    
     indices = A.indices
     values = A.data 
     rows, cols = indices.transpose()
