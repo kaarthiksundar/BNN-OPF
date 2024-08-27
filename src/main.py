@@ -32,10 +32,10 @@ def main(
     num_unsupervised_per_group: Annotated[int, typer.Option(
         '--unsupervised', '-u', 
         help = 'num unsupervised points per group (use power of 2)')] = 2, #500, 
-    batch_size: Annotated[int, typer.Option(
-        '--batchsize', 'b', 
-        help = 'batch size as a power of 2'
-        )] = 32, 
+    # batch_size: Annotated[int, typer.Option(
+    #     '--batch', 'b', 
+    #     help = 'batch size as a power of 2'
+    #     )] = 32, 
     debug: Annotated[bool, typer.Option(help = 'debug flag')] = False, 
     warn: Annotated[bool, typer.Option(help = 'warn flag')] = False, 
     error: Annotated[bool, typer.Option(help = 'error flag')] = False, 
@@ -56,6 +56,7 @@ def main(
         return 
     
     # cli-arg validation
+    batch_size = 32
     g = num_groups 
     r = num_train_per_group
     b = batch_size

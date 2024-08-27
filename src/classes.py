@@ -157,8 +157,8 @@ class OPFData():
         self.test = test 
         self.unsupervised = unsupervised
         self.batch_size = batch_size
-        self.num_batches = len(range(0, train.shape[0], self.batch_size))
         self.X_train = get_X(self.train)
+        self.num_batches = len(range(0, self.X_train.shape[0], self.batch_size))
         self.Y_train = get_Y(self.train)
         self.X_test = get_X(self.test)
         self.Y_test = get_Y(self.test)
@@ -201,18 +201,18 @@ class OPFData():
         fr = i 
         to = i + self.batch_size
         if io == 'i': 
-            if res == 'r': 
+            if ru == 'r': 
                 if norm: 
-                    return X_train_norm[fr:to] 
+                    return self.X_train_norm[fr:to] 
                 else: 
-                    return X_train[fr:to] 
+                    return self.X_train[fr:to] 
             else: 
                 if norm: 
-                    return X_unsupervised_norm[fr:to]
+                    return self.X_unsupervised_norm[fr:to]
                 else:
-                    return X_unsupervised[fr:to]
+                    return self.X_unsupervised[fr:to]
         else: 
             if norm: 
-                return Y_train_norm[fr:to]
+                return self.Y_train_norm[fr:to]
             else: 
-                return Y_train[fr:to]
+                return self.Y_train[fr:to]

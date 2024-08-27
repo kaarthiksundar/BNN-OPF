@@ -13,6 +13,7 @@ from jax import random
 from jax import jit
 import jax
 import time
+import numpy as np
 from sklearn.metrics import mean_squared_error
 
 # supervised model definition 
@@ -172,7 +173,7 @@ def supervised_run(
     opf_data: OPFData, log, 
     initial_learning_rate = 1e-3, 
     decay_rate = 1e-4, 
-    max_training_time = 10.0, 
+    max_training_time = 60.0, 
     max_epochs = 200000):
     
     # initialize the optimizer
@@ -187,7 +188,7 @@ def supervised_run(
         loss = TraceMeanField_ELBO())
     
     rng_key = random.PRNGKey(0)
-    svi_state = svi.init(rng_key, opf_data)
+    svi_state = svi.init(rng_key, opf_data, 0)
     log.info('SVI initialization complete')
     
     start_time = time.time()
@@ -202,7 +203,7 @@ def supervised_run(
             epoch_losses.append(loss)
         mean_epoch_loss = np.mean(epoch_losses)
         log.debug(f'epoch: {epoch}, mean loss: {mean_epoch_loss}')
-        losses.append(mean_epoch_losses)
+        losses.append(mean_epoch_loss)
         if time.time() - start_time > max_training_time:
             log.info('Maximum training time reached')
             break
@@ -216,9 +217,9 @@ def supervised_run(
 
     predictive = Predictive(model=supervised_testing_model, guide=supervised_guide, 
                             params=svi.get_params(svi_state), 
-                            num_samples=100, return_sites=("Y_pg", "Y_qg", "Y_vm", "Y_va"))
+                            num_samples=1000, return_sites=("Y_pg", "Y_qg", "Y_vm", "Y_va"))
 
-    predictions = predictive(rng_key, opf_data)
+    predictions = predictive(rng_key, opf_data, 0)
     combined_predictions = jnp.concatenate([predictions['Y_pg'],predictions['Y_qg'],predictions['Y_vm'],predictions['Y_va']], axis=-1)
     A = combined_predictions * opf_data.Y_std + opf_data.Y_mean
     
