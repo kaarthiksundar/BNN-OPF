@@ -2,6 +2,7 @@ import typer
 from typing_extensions import Annotated
 from pathlib import Path
 import logging
+import json
 
 from logger import CustomFormatter
 from dataloader import load_data
@@ -17,6 +18,7 @@ app = typer.Typer()
 def main(
     data_path: Annotated[str, typer.Option('--datapath', '-p')] = './data/', 
     case: Annotated[str, typer.Option('--case', '-c')] = 'pglib_opf_case57_ieee',
+    config_file: Annotated[str, typer.Option('--config', '-o')] = 'config.json',
     num_groups: Annotated[int, typer.Option(
         '--numgroups', '-n', 
         help = 'data is split into 20 groups with each having 15000 data points use in {1, 2, 4, 8, 16}'
@@ -24,18 +26,14 @@ def main(
     num_train_per_group: Annotated[int, typer.Option(
         '--train', '-r', 
         help = 'num training points per group (use power of 2)'
-        )] = 2,#50, 
+        )] = 256,#50, 
     num_test_per_group: Annotated[int, typer.Option(
         '--test', '-e', 
         help = 'num testing points per group'
-        )] = 20,
+        )] = 50,
     num_unsupervised_per_group: Annotated[int, typer.Option(
         '--unsupervised', '-u', 
-        help = 'num unsupervised points per group (use power of 2)')] = 2, #500, 
-    # batch_size: Annotated[int, typer.Option(
-    #     '--batch', 'b', 
-    #     help = 'batch size as a power of 2'
-    #     )] = 32, 
+        help = 'num unsupervised points per group (use power of 2)')] = 256, #500, 
     debug: Annotated[bool, typer.Option(help = 'debug flag')] = False, 
     warn: Annotated[bool, typer.Option(help = 'warn flag')] = False, 
     error: Annotated[bool, typer.Option(help = 'error flag')] = False, 
@@ -56,9 +54,15 @@ def main(
         return 
     
     # cli-arg validation
-    batch_size = 32
+    if (Path(data_path + config_file).is_file() == False): 
+        log.error(f'File {data_path + config_file} does not exist')
+        return
+    
+    data = json.load(open(data_path + config_file))
+    batch_size = data["batch_size"]
     g = num_groups 
     r = num_train_per_group
+    u = num_unsupervised_per_group 
     b = batch_size
     if ((g & (g - 1) == 0) and g != 0)  == False:
         log.error(f'ensure num groups is a power of 2 and <= 20')
@@ -69,7 +73,7 @@ def main(
     if ((b & (b - 1) == 0) and b != 0 and b != 1) == False:
         log.error(f'ensure batch size is a power of 2 (for batching)')
         return
-    count = r + num_test_per_group + num_unsupervised_per_group
+    count = r + num_test_per_group + u
     if (count > 15000):
         log.error('One group contains only 15000 data points')
         log.error('Ensure (--train) + (--test) + (--unsupervised) <= 15000')
@@ -78,7 +82,10 @@ def main(
     if (Path(data_path + case + '.m').is_file() == False): 
         log.error(f'File {data_path + case}.m does not exist')
         return
-    
+    log.info(f'case: {case}')
+    log.info(f'# training supervised training samples: {int(g*r)}')
+    log.info(f'# training unsupervised training samples: {int(g*u)}')
+    log.info(f'# testing samples: {int(g * num_test_per_group)}')
     sample_counts = SampleCounts(
         num_groups = g, 
         num_train_per_group = r, 
@@ -96,7 +103,13 @@ def main(
         log.info(f'Data downloaded and loaded, quitting because of only_dl_flag = {only_dl_flag}')
         return
 
-    supervised_run(opf_data, log)
+    supervised_run(
+        opf_data, log, 
+        initial_learning_rate = data.get("initial_learning_rate", 1e-3), 
+        decay_rate = data.get("decay_rate", 1e-4), 
+        max_training_time = data.get("max_training_time", 100.0), 
+        max_epochs = data.get("max_epochs", 100)
+        )
     
 
 def get_logger(debug, warn, error): 

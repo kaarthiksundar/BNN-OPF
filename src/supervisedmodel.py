@@ -9,12 +9,14 @@ from acopf import assess_feasibility
 from bnncommon import *
 from optax import adam, chain, clip, nadam
 from numpyro.infer import Predictive, SVI, Trace_ELBO, TraceGraph_ELBO, TraceMeanField_ELBO
+from numpyro import handlers
 from jax import random
 from jax import jit
 import jax
 import time
 import numpy as np
 from sklearn.metrics import mean_squared_error
+from acopf import *
 
 # supervised model definition 
 def supervised_model(opf_data: OPFData, batch_id: int, vi_parameters = None): 
@@ -57,9 +59,10 @@ def supervised_model(opf_data: OPFData, batch_id: int, vi_parameters = None):
     slices = params['output_block_slices']
     
     with numpyro.plate('data', size=num_data_points):
-        for name in params['output_block_dim'].keys(): 
-            numpyro.sample(f'Y_{name}', dist.Normal(z[name], likelihood_std[name]).to_event(1), obs=Y[:, slices[name]])
-        numpyro.sample('L', dist.Normal(L_predict, likelihood_std['pg'] * 0.01), obs=L_true)
+        with handlers.scale(scale=1.0/1e13):
+            for name in params['output_block_dim'].keys(): 
+                numpyro.sample(f'Y_{name}', dist.Normal(z[name], likelihood_std[name]).to_event(1), obs=Y[:, slices[name]])
+            numpyro.sample('L', dist.Normal(L_predict, likelihood_std['pg'] * 0.01), obs=L_true)
      
 # supervised testing model definition
 def supervised_testing_model(opf_data: OPFData, batch_id: int, vi_parameters = None):
@@ -174,18 +177,18 @@ def supervised_run(
     initial_learning_rate = 1e-3, 
     decay_rate = 1e-4, 
     max_training_time = 60.0, 
-    max_epochs = 200000):
+    max_epochs = 100):
     
     # initialize the optimizer
     learning_rate_schedule = time_based_decay_schedule(initial_learning_rate, decay_rate)
     optimizer = chain(clip(10.0), adam(learning_rate_schedule))
-    
+    elbo = TraceMeanField_ELBO()
     # initialize the stochastic variational inference 
     svi = SVI(
         supervised_model, 
         supervised_guide, 
         optimizer, 
-        loss = TraceMeanField_ELBO())
+        loss = elbo)
     
     rng_key = random.PRNGKey(0)
     svi_state = svi.init(rng_key, opf_data, 0)
@@ -198,6 +201,7 @@ def supervised_run(
             log.info('Maximum training time reached')
             break 
         epoch_losses = [] 
+        
         for i in range(opf_data.num_batches):
             svi_state, loss = svi.update(svi_state, opf_data, i)
             epoch_losses.append(loss)
@@ -215,19 +219,47 @@ def supervised_run(
     # log.debug(loss)
     # update_fn = jit(svi.update)
 
-    predictive = Predictive(model=supervised_testing_model, guide=supervised_guide, 
-                            params=svi.get_params(svi_state), 
-                            num_samples=1000, return_sites=("Y_pg", "Y_qg", "Y_vm", "Y_va"))
+    predictive = Predictive(
+        model=supervised_testing_model, 
+        guide=supervised_guide, 
+        params=svi.get_params(svi_state), 
+        num_samples=100, 
+        return_sites=("Y_pg", "Y_qg", "Y_vm", "Y_va"))
 
     predictions = predictive(rng_key, opf_data, 0)
-    combined_predictions = jnp.concatenate([predictions['Y_pg'],predictions['Y_qg'],predictions['Y_vm'],predictions['Y_va']], axis=-1)
+    combined_predictions = jnp.concatenate([
+        predictions['Y_pg'],
+        predictions['Y_qg'],
+        predictions['Y_vm'],
+        predictions['Y_va']
+        ], axis=-1)
     A = combined_predictions * opf_data.Y_std + opf_data.Y_mean
     
-    y_predict_vi_original = A.mean(0) #recover_original_values(y_predict_vi, processed_data['mean_y_train'], processed_data['std_y_train'])
-    sigma_y_predict_original = A.std(0)#recover_original_values(sigma_y_predict, processed_data['mean_y_train'], processed_data['std_y_train'])
-
-    mse = mean_squared_error(y_predict_vi_original, opf_data.Y_test)
-    print(mse)
+    y_predict_mean = A.mean(0) 
+    y_predict_std = A.std(0)
+    # total MSE
+    mse = mean_squared_error(y_predict_mean, opf_data.Y_test)
+    log.debug(f'total prediction MSE: {mse}')
+    # cost MSE
+    cost = get_objective_value(y_predict_mean, opf_data)
+    cost_true = get_objective_value(opf_data.Y_test, opf_data)
+    log.debug(cost.shape)
+    log.debug(cost_true.shape)
+    mse_cost = mean_squared_error(cost, cost_true)
+    log.debug(f'cost prediction MSE: {mse_cost}')
+    
+    pg, qg, vm, va = get_output_variables(y_predict_mean, opf_data) 
+    pg_t, qg_t, vm_t, va_t = get_output_variables(opf_data.Y_test, opf_data)
+    
+    mse_pg = mean_squared_error(pg, pg_t)
+    log.debug(f'pg prediction MSE: {mse_pg}')
+    mse_qg = mean_squared_error(qg, qg_t)
+    log.debug(f'qg prediction MSE: {mse_qg}')
+    mse_vm = mean_squared_error(vm, vm_t)
+    log.debug(f'vm prediction MSE: {mse_vm}')
+    mse_va = mean_squared_error(va, va_t)
+    log.debug(f'va prediction MSE: {mse_va}')
+    
     
     # # print(svi_result)
     # epoch_losses = [] 

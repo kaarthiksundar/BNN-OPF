@@ -25,7 +25,9 @@ def get_output_variables(Y, opf_data):
 # evaluate objective function given output predictions 
 def get_objective_value(Y, opf_data) -> jax.Array:
     pg, _, _, _ = get_output_variables(Y, opf_data)
-    cost = (opf_data.gen_cost.q * pg**2).sum(axis=1) + (opf_data.gen_cost.l * pg).sum(axis=1) + opf_data.gen_cost.c 
+    cost = (
+        opf_data.gen_cost.q * pg**2).sum(axis=1) + (
+            opf_data.gen_cost.l * pg).sum(axis=1) + jnp.ones(pg.shape[0]) * opf_data.gen_cost.c.sum() 
     return cost
 
 # evaluate equality constraint residuals given input and output data (PF constraints)
