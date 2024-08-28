@@ -53,15 +53,31 @@ def get_equality_constraint_violations(X, Y, opf_data) -> jax.Array:
     residual = generation - load - bus_injection 
     return jnp.concatenate([jnp.real(residual), jnp.imag(residual)], axis=1)
 
+
+# pg limit violations
+def get_pg_bound_violations(pg, opf_data) -> jax.Array: 
+    pg_lower = jnp.maximum(opf_data.pg_bounds.lower - pg, 0.0)
+    pg_upper = jnp.maximum(pg - opf_data.pg_bounds.upper, 0.0)
+    return pg_lower, pg_upper
+
+# qg limit violations 
+def get_qg_bound_violations(qg, opf_data) -> jax.Array: 
+    qg_lower = jnp.maximum(opf_data.qg_bounds.lower - qg, 0.0)
+    qg_upper = jnp.maximum(qg - opf_data.qg_bounds.upper, 0.0)
+    return qg_lower, qg_upper 
+
+# vm violations 
+def get_vm_bound_violations(vm, opf_data) -> jax.Array: 
+    vm_lower = jnp.maximum(opf_data.vm_bounds.lower - vm, 0.0)
+    vm_upper = jnp.maximum(vm - opf_data.vm_bounds.upper, 0.0)
+    return vm_lower, vm_upper
+    
 # evaluate inequality constraint residuals given input and output data (variable bounds)
 def get_inequality_constraint_violations(Y, opf_data, line_limits = False) -> jax.Array:
     pg, qg, vm, va = get_output_variables(Y, opf_data)
-    pg_lower = jnp.maximum(opf_data.pg_bounds.lower - pg, 0.0)
-    pg_upper = jnp.maximum(pg - opf_data.pg_bounds.upper, 0.0)
-    qg_lower = jnp.maximum(opf_data.qg_bounds.lower - qg, 0.0)
-    qg_upper = jnp.maximum(qg - opf_data.qg_bounds.upper, 0.0)
-    vm_lower = jnp.maximum(opf_data.vm_bounds.lower - vm, 0.0)
-    vm_upper = jnp.maximum(vm - opf_data.vm_bounds.upper, 0.0)
+    pg_lower, pg_upper = get_pg_bound_violations(pg, opf_data)
+    qg_lower, qg_upper = get_qg_bound_violations(qg, opf_data)
+    vm_lower, vm_upper = get_vm_bound_violations(vm, opf_data)
     if (line_limits == False):
         residual = jnp.concatenate([
             pg_lower, pg_upper, 

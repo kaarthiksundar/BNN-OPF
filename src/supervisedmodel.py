@@ -106,8 +106,12 @@ def supervised_testing_model(opf_data: OPFData, batch_id: int, vi_parameters = N
 def supervised_guide(opf_data: OPFData, batch_id: int, vi_parameters = None):
     vi_params = vi_parameters if vi_parameters is not None else dict()
     params = get_model_params(opf_data)
-    X_norm = opf_data.get_batch(batch_id, 'i', True, 'r') # opf_data.X_train_norm  
-    X = opf_data.get_batch(batch_id, 'i', False, 'r') # opf_data.X_train
+    if batch_id >= 0:
+        X_norm = opf_data.get_batch(batch_id, 'i', True, 'r') # opf_data.X_train_norm  
+        X = opf_data.get_batch(batch_id, 'i', False, 'r') # opf_data.X_train
+    else: 
+        X_norm = opf_data.X_test_norm  
+        X = opf_data.X_test 
     num_data_points, num_inputs = X_norm.shape
     num_layers = params['num_layers']
     num_nodes_per_layer = params['num_nodes_per_hidden_layer']
@@ -177,7 +181,8 @@ def supervised_run(
     initial_learning_rate = 1e-3, 
     decay_rate = 1e-4, 
     max_training_time = 60.0, 
-    max_epochs = 100):
+    max_epochs = 100, 
+    vi_parameters = None):
     
     # initialize the optimizer
     learning_rate_schedule = time_based_decay_schedule(initial_learning_rate, decay_rate)
@@ -191,7 +196,7 @@ def supervised_run(
         loss = elbo)
     
     rng_key = random.PRNGKey(0)
-    svi_state = svi.init(rng_key, opf_data, 0)
+    svi_state = svi.init(rng_key, opf_data, 0, init_params = vi_parameters)
     log.info('SVI initialization complete')
     
     start_time = time.time()
@@ -203,7 +208,7 @@ def supervised_run(
         epoch_losses = [] 
         
         for i in range(opf_data.num_batches):
-            svi_state, loss = svi.update(svi_state, opf_data, i)
+            svi_state, loss = svi.update(svi_state, opf_data, i, vi_parameters = vi_parameters)
             epoch_losses.append(loss)
         mean_epoch_loss = np.mean(epoch_losses)
         log.debug(f'epoch: {epoch}, mean loss: {mean_epoch_loss}')
@@ -226,7 +231,7 @@ def supervised_run(
         num_samples=100, 
         return_sites=("Y_pg", "Y_qg", "Y_vm", "Y_va"))
 
-    predictions = predictive(rng_key, opf_data, 0)
+    predictions = predictive(rng_key, opf_data, -1)
     combined_predictions = jnp.concatenate([
         predictions['Y_pg'],
         predictions['Y_qg'],
@@ -243,15 +248,13 @@ def supervised_run(
     # cost MSE
     cost = get_objective_value(y_predict_mean, opf_data)
     cost_true = get_objective_value(opf_data.Y_test, opf_data)
-    log.debug(cost)
-    log.debug(cost_true)
-    mse_cost = mean_squared_error(cost, cost_true)
-    log.debug(f'cost prediction MSE: {mse_cost}')
+    # log.debug(cost)
+    # log.debug(cost_true)
+    # mse_cost = mean_squared_error(cost, cost_true)
+    # log.debug(f'cost prediction MSE: {mse_cost}')
     
     pg, qg, vm, va = get_output_variables(y_predict_mean, opf_data) 
     pg_t, qg_t, vm_t, va_t = get_output_variables(opf_data.Y_test, opf_data)
-    log.debug(f'pg: {pg}')
-    log.debug(f'pg true: {pg_t}')
     
     mse_pg = mean_squared_error(pg, pg_t)
     log.debug(f'pg prediction MSE: {mse_pg}')
@@ -262,12 +265,18 @@ def supervised_run(
     mse_va = mean_squared_error(va, va_t)
     log.debug(f'va prediction MSE: {mse_va}')
     
-    
-    # # print(svi_result)
-    # epoch_losses = [] 
-    # for i in range(10):
-    #     svi_state, loss = svi.update(svi_state, opf_data)
-    #     epoch_losses.append(loss)
-    # log.info(f'epoch losses: {epoch_losses}')
-    # # log.info('running')
-    # log.info(svi_state)
+    pf_residuals = get_equality_constraint_violations(opf_data.X_test, y_predict_mean, opf_data)
+    real_pf_res, imag_pf_res = jnp.array_split(pf_residuals, 2)
+    log.debug(f'real power flow eq. residuals (max): {real_pf_res.max()}')
+    log.debug(f'real power flow eq. residuals (min): {real_pf_res.min()}')
+    log.debug(f'reactive power flow eq. residuals (max): {imag_pf_res.max()}')
+    log.debug(f'reactive power flow eq. residuals (min): {imag_pf_res.min()}')
+    pg_bound_violations = get_pg_bound_violations(pg, opf_data)
+    max_violation = (pg_bound_violations[0].max(), pg_bound_violations[1].max())
+    log.debug(f'max pg bound violation (l, u): {max_violation}')
+    qg_bound_violations = get_qg_bound_violations(qg, opf_data)
+    max_violation = (qg_bound_violations[0].max(), qg_bound_violations[1].max())
+    log.debug(f'max qg bound violation (l, u): {max_violation}')
+    vm_bound_violations = get_vm_bound_violations(vm, opf_data)
+    max_violation = (vm_bound_violations[0].max(), vm_bound_violations[1].max())
+    log.debug(f'max vm bound violation (l, u): {max_violation}')

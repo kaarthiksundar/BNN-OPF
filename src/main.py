@@ -12,12 +12,12 @@ from supervisedmodel import supervised_run
 from classes import SampleCounts
 
 
-app = typer.Typer()
+app = typer.Typer(pretty_exceptions_show_locals=False)
 
 @app.command()
 def main(
     data_path: Annotated[str, typer.Option('--datapath', '-p')] = './data/', 
-    case: Annotated[str, typer.Option('--case', '-c')] = 'pglib_opf_case57_ieee',
+    case: Annotated[str, typer.Option('--case', '-c')] = 'pglib_opf_case118_ieee',
     config_file: Annotated[str, typer.Option('--config', '-o')] = 'config.json',
     num_groups: Annotated[int, typer.Option(
         '--numgroups', '-n', 
@@ -103,7 +103,6 @@ def main(
         log.info(f'Data downloaded and loaded, quitting because of only_dl_flag = {only_dl_flag}')
         return
 
-    log.debug(f'{opf_data.gen_cost}')
     supervised_run(
         opf_data, log, 
         initial_learning_rate = data.get("initial_learning_rate", 1e-3), 
