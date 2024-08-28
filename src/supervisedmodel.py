@@ -243,13 +243,15 @@ def supervised_run(
     # cost MSE
     cost = get_objective_value(y_predict_mean, opf_data)
     cost_true = get_objective_value(opf_data.Y_test, opf_data)
-    log.debug(cost.shape)
-    log.debug(cost_true.shape)
+    log.debug(cost)
+    log.debug(cost_true)
     mse_cost = mean_squared_error(cost, cost_true)
     log.debug(f'cost prediction MSE: {mse_cost}')
     
     pg, qg, vm, va = get_output_variables(y_predict_mean, opf_data) 
     pg_t, qg_t, vm_t, va_t = get_output_variables(opf_data.Y_test, opf_data)
+    log.debug(f'pg: {pg}')
+    log.debug(f'pg true: {pg_t}')
     
     mse_pg = mean_squared_error(pg, pg_t)
     log.debug(f'pg prediction MSE: {mse_pg}')

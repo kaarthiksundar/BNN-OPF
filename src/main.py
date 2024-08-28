@@ -103,6 +103,7 @@ def main(
         log.info(f'Data downloaded and loaded, quitting because of only_dl_flag = {only_dl_flag}')
         return
 
+    log.debug(f'{opf_data.gen_cost}')
     supervised_run(
         opf_data, log, 
         initial_learning_rate = data.get("initial_learning_rate", 1e-3), 
