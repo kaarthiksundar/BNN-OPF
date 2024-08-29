@@ -61,7 +61,8 @@ def load_data(
     load_to_idx, idx_to_load = sample_info[1], sample_info[2] 
     demand_train, gen_train, v_train, obj_train = sample_info[3]
     demand_test, gen_test, v_test, obj_test = sample_info[4]
-    demand_unsupervised = sample_info[5]
+    demand_val, gen_val, v_val, obj_val = sample_info[5]
+    demand_unsupervised = sample_info[6]
     log.info('Dataset parsed and organized')
     
     # create components 
@@ -77,6 +78,7 @@ def load_data(
     # training and testing dataset 
     train = Data(demand_train, gen_train, v_train, obj_train) 
     test = Data(demand_test, gen_test, v_test, obj_test)
+    validation = Data(demand_val, gen_val, v_val, obj_val)
     unsupervised = UnsupervisedData(demand_unsupervised)
     
     return OPFData(
@@ -96,6 +98,7 @@ def load_data(
         va_ref = va_ref,
         train = train,  
         test = test,
+        validation = validation,
         unsupervised = unsupervised, 
         batch_size = sample_counts.batch_size
     )
@@ -225,19 +228,24 @@ def get_samples(dataset: OPFDataset,
     num_groups = sample_counts.num_groups 
     num_train = sample_counts.num_train_per_group 
     num_test = sample_counts.num_test_per_group 
+    num_validation = sample_counts.num_validation_per_group
     num_unsupervised = sample_counts.num_unsupervised_per_group
     loads = [ (key, val) for key, val in case_data['elements']['load'].items() if val['in_service'] == True ]
     idx_to_load = [ key for (key, _) in loads ]
     load_to_idx = { x[0] : i for (i, x) in enumerate(loads) }
     demand_train = np.zeros((num_train * num_groups, len(loads)), dtype=complex)
     demand_test = np.zeros((num_test * num_groups, len(loads)), dtype=complex) 
+    demand_val = np.zeros((num_validation * num_groups, len(loads)), dtype=complex) 
     demand_unsupervised = np.zeros((num_unsupervised * num_groups, len(loads)), dtype=complex)
     gen_train = np.zeros((num_train * num_groups, len(gens)), dtype=complex) 
     gen_test = np.zeros((num_test * num_groups, len(gens)), dtype=complex) 
+    gen_val = np.zeros((num_validation * num_groups, len(gens)), dtype=complex) 
     v_train = np.zeros((num_train * num_groups, len(buses)), dtype=complex) 
     v_test = np.zeros((num_test * num_groups, len(buses)), dtype=complex)
+    v_val = np.zeros((num_validation * num_groups, len(buses)), dtype=complex)
     obj_train = np.zeros((num_train * num_groups), dtype=float)
     obj_test = np.zeros((num_test * num_groups), dtype=float)
+    obj_val = np.zeros((num_validation * num_groups), dtype=float)
 
     for group in tqdm.tqdm(range(num_groups)): 
         tmp_dir = pathlib.PurePath(
@@ -246,12 +254,15 @@ def get_samples(dataset: OPFDataset,
             dataset._release,
             dataset.case_name,
             f'group_{group}')
-        files = sorted(pathlib.Path(tmp_dir).glob('*.json'))[:num_train+num_test+num_unsupervised]
+        files = sorted(pathlib.Path(tmp_dir).glob('*.json'))
         tr = num_train 
         te = num_test 
         us = num_unsupervised
+        v = num_validation
         train_files = files[:tr]
-        test_files = files[tr:(tr+te)]
+        unsupervised_files = files[tr:(tr+us)]
+        test_files = files[-te:]
+        validation_files = files[-(te+v):-te]
         unsupervised_files = files[(tr+te):(tr+te+us)]
         for (i, name) in enumerate(train_files):
             j = i + group * tr
@@ -273,6 +284,16 @@ def get_samples(dataset: OPFDataset,
             gen_test[j, :] = [g[0] + g[1] * 1j for g in solution['nodes']['generator']]
             v_test[j, :] = [v[1] * math.cos(v[0]) + v[1] * math.sin(v[0]) * 1j for v in solution['nodes']['bus']]  
             obj_test[j] = obj['metadata']['objective']
+        for (i, name) in enumerate(validation_files): 
+            j = i + group * v
+            with (open(name)) as f:
+                obj = json.load(f)
+            grid = obj['grid']
+            solution = obj['solution']
+            demand_val[j, :] = [d[0] + d[1] * 1j for d in grid['nodes']['load']]
+            gen_val[j, :] = [g[0] + g[1] * 1j for g in solution['nodes']['generator']]
+            v_val[j, :] = [v[1] * math.cos(v[0]) + v[1] * math.sin(v[0]) * 1j for v in solution['nodes']['bus']]  
+            obj_val[j] = obj['metadata']['objective']
         for (i, name) in enumerate(unsupervised_files): 
             j = i + group * us
             with (open(name)) as f: 
@@ -282,6 +303,7 @@ def get_samples(dataset: OPFDataset,
             
     train = (demand_train, gen_train, v_train, obj_train)
     test = (demand_test, gen_test, v_test, obj_test)
+    validation = (demand_val, gen_val, v_val, obj_val)
     unsupervised = demand_unsupervised
             
-    return loads, load_to_idx, idx_to_load, train, test, unsupervised
+    return loads, load_to_idx, idx_to_load, train, test, validation, unsupervised

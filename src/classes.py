@@ -14,6 +14,7 @@ class SampleCounts:
     num_train_per_group: int 
     num_test_per_group: int 
     num_unsupervised_per_group: int 
+    num_validation_per_group: int
     batch_size: int
  
 @dataclass
@@ -101,6 +102,7 @@ class OPFData():
         va_ref (jax.Array): ref bus voltage angles (this are fixed)
         train: Data, 
         test: Data, 
+        validation: Data, 
         unsupervised: UnsupervisedData
         batch_size: int
     """
@@ -133,6 +135,7 @@ class OPFData():
         va_ref: jax.Array,
         train: Data, 
         test: Data, 
+        validation: Data,
         unsupervised: UnsupervisedData,
         batch_size: int
         ) -> None:
@@ -155,13 +158,15 @@ class OPFData():
         self.va_ref = va_ref
         self.train = train 
         self.test = test 
+        self.validation = validation
         self.unsupervised = unsupervised
         self.batch_size = batch_size
         self.X_train = get_X(self.train)
-        self.num_batches = len(range(0, self.X_train.shape[0], self.batch_size))
         self.Y_train = get_Y(self.train)
         self.X_test = get_X(self.test)
         self.Y_test = get_Y(self.test)
+        self.X_val = get_X(self.validation)
+        self.Y_val = get_Y(self.validation)
         self.X_unsupervised = get_X(self.unsupervised)
         X_data = jnp.concatenate([self.X_train, self.X_unsupervised], axis=0)
         self.X_mean = get_mean(X_data)
@@ -170,9 +175,11 @@ class OPFData():
         self.Y_std = get_std(self.Y_train)
         self.X_train_norm = (self.X_train - self.X_mean) / self.X_std 
         self.X_test_norm = (self.X_test - self.X_mean) / self.X_std 
+        self.X_val_norm = (self.X_val - self.X_mean) / self.X_std 
         self.X_unsupervised_norm = (self.X_unsupervised - self.X_mean) / self.X_std 
         self.Y_train_norm = (self.Y_train - self.Y_mean) / self.Y_std 
         self.Y_test_norm = (self.Y_test - self.Y_mean) / self.Y_std
+        self.Y_val_norm = (self.Y_val - self.Y_mean) / self.Y_std
         
     def get_num_buses(self) -> int:
         return len(self.buses.components)
@@ -182,37 +189,3 @@ class OPFData():
     
     def get_num_loads(self) -> int: 
         return len(self.loads.components)
-    
-    def get_batch(self, i: int, io: str, norm: bool, ru: str) -> jax.Array: 
-        """ get the batched data
-
-        Args:
-            i (int): batch number (0 <= i < self.num_batches)
-            io (str): 'i' means input X, 'o' means output Y
-            norm (bool): True means normalized, False means un-normalized
-            ru (str): 'r' means train, 'u' means unsupervised. 
-            
-            it is not possible to have ru = 'u' and io = 'o'
-
-        Returns:
-            jax.Array: corresponding jax Array
-        """
-        assert(i < self.num_batches)
-        fr = i 
-        to = i + self.batch_size
-        if io == 'i': 
-            if ru == 'r': 
-                if norm: 
-                    return self.X_train_norm[fr:to] 
-                else: 
-                    return self.X_train[fr:to] 
-            else: 
-                if norm: 
-                    return self.X_unsupervised_norm[fr:to]
-                else:
-                    return self.X_unsupervised[fr:to]
-        else: 
-            if norm: 
-                return self.Y_train_norm[fr:to]
-            else: 
-                return self.Y_train[fr:to]

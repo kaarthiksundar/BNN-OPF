@@ -114,4 +114,32 @@ def unsupervised_guide(
     for name in params['output_block_dim'].keys():
         create_guide_block(name)
     
+def run_unsupervised(
+    opf_data: OPFData, log, 
+    initial_learning_rate = 1e-3, 
+    decay_rate = 1e-4, 
+    max_training_time = 60.0, 
+    max_epochs = 100, 
+    vi_parameters = None):
     
+    # initialize the optimizer
+    learning_rate_schedule = time_based_decay_schedule(initial_learning_rate, decay_rate)
+    optimizer = chain(clip(10.0), adam(learning_rate_schedule))
+    elbo = TraceMeanField_ELBO()
+    # initialize the stochastic variational inference 
+    svi = SVI(
+        supervised_model, 
+        supervised_guide, 
+        optimizer, 
+        loss = elbo)
+    
+    rng_key = random.PRNGKey(0)
+    svi_state = svi.init(
+        rng_key, 
+        opf_data.X_unsupervised, 
+        opf_data.X_unsupervised_norm, 
+        init_params = vi_parameters, 
+        opf_data = opf_data)
+    
+    
+    log.info('SVI initialization complete')

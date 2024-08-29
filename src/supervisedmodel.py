@@ -1,4 +1,5 @@
 from classes import OPFData
+from typing import Union
 import logging 
 import numpyro
 import numpyro.distributions as dist
@@ -17,12 +18,14 @@ import time
 import numpy as np
 from sklearn.metrics import mean_squared_error
 from acopf import *
+from stopping import *
 
 # supervised model definition 
-def supervised_model(opf_data: OPFData, batch_id: int, vi_parameters = None): 
+def supervised_model(
+    X_norm, X, Y = None, 
+    opf_data: Union[None, OPFData] = None, 
+    vi_parameters = None): 
     params = get_model_params(opf_data)
-    X_norm = opf_data.get_batch(batch_id, 'i', True, 'r') # opf_data.X_train_norm  
-    X = opf_data.get_batch(batch_id, 'i', False, 'r') # opf_data.X_train
     num_data_points, num_inputs = X_norm.shape
     num_layers = params['num_layers']
     num_nodes_per_layer = params['num_nodes_per_hidden_layer']
@@ -46,7 +49,6 @@ def supervised_model(opf_data: OPFData, batch_id: int, vi_parameters = None):
     z = OrderedDict([ (name, create_block(name)) for name in params['output_block_dim'].keys() ])
     z_e = jnp.concatenate(list(z.values()), axis=-1)
     z_e = z_e * opf_data.Y_std + opf_data.Y_mean
-    Y = opf_data.get_batch(batch_id, 'o', False, 'r') # opf_data.Y_train
     L_predict = assess_feasibility(X, z_e, opf_data)
     L_true = assess_feasibility(X, Y, opf_data)
     
@@ -59,16 +61,17 @@ def supervised_model(opf_data: OPFData, batch_id: int, vi_parameters = None):
     slices = params['output_block_slices']
     
     with numpyro.plate('data', size=num_data_points):
-        with handlers.scale(scale=1.0/1e13):
+        with handlers.scale(scale=1.0):
             for name in params['output_block_dim'].keys(): 
                 numpyro.sample(f'Y_{name}', dist.Normal(z[name], likelihood_std[name]).to_event(1), obs=Y[:, slices[name]])
             numpyro.sample('L', dist.Normal(L_predict, likelihood_std['pg'] * 0.01), obs=L_true)
      
 # supervised testing model definition
-def supervised_testing_model(opf_data: OPFData, batch_id: int, vi_parameters = None):
+def supervised_testing_model(
+    X_norm, X, Y = None, 
+    opf_data: Union[None, OPFData] = None, 
+    vi_parameters = None):
     params = get_model_params(opf_data)
-    X_norm = opf_data.X_test_norm  
-    X = opf_data.X_test
     num_data_points, num_inputs = X_norm.shape
     num_layers = params['num_layers']
     num_nodes_per_layer = params['num_nodes_per_hidden_layer']
@@ -103,15 +106,13 @@ def supervised_testing_model(opf_data: OPFData, batch_id: int, vi_parameters = N
             numpyro.sample(f'Y_{name}', dist.Normal(z[name], likelihood_std[name]).to_event(1), obs=None)
 
 # initial guide does not require vi_parameters
-def supervised_guide(opf_data: OPFData, batch_id: int, vi_parameters = None):
+def supervised_guide(
+    X_norm, X, Y = None, 
+    opf_data: Union[None, OPFData] = None, 
+    vi_parameters = None):
     vi_params = vi_parameters if vi_parameters is not None else dict()
     params = get_model_params(opf_data)
-    if batch_id >= 0:
-        X_norm = opf_data.get_batch(batch_id, 'i', True, 'r') # opf_data.X_train_norm  
-        X = opf_data.get_batch(batch_id, 'i', False, 'r') # opf_data.X_train
-    else: 
-        X_norm = opf_data.X_test_norm  
-        X = opf_data.X_test 
+
     num_data_points, num_inputs = X_norm.shape
     num_layers = params['num_layers']
     num_nodes_per_layer = params['num_nodes_per_hidden_layer']
@@ -188,6 +189,8 @@ def supervised_run(
     learning_rate_schedule = time_based_decay_schedule(initial_learning_rate, decay_rate)
     optimizer = chain(clip(10.0), adam(learning_rate_schedule))
     elbo = TraceMeanField_ELBO()
+    stop_check = PatienceThresholdStoppingCriteria(log)
+    
     # initialize the stochastic variational inference 
     svi = SVI(
         supervised_model, 
@@ -196,42 +199,110 @@ def supervised_run(
         loss = elbo)
     
     rng_key = random.PRNGKey(0)
-    svi_state = svi.init(rng_key, opf_data, 0, init_params = vi_parameters)
+    svi_state = svi.init(
+        rng_key, 
+        opf_data.X_train_norm, 
+        opf_data.X_train, 
+        init_params = vi_parameters, 
+        Y = opf_data.Y_train,
+        opf_data = opf_data,
+        vi_parameters = vi_parameters)
+    
     log.info('SVI initialization complete')
     
     start_time = time.time()
     losses = [] 
     for epoch in range(max_epochs):
         if time.time() - start_time > max_training_time: 
+            stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
             log.info('Maximum training time reached')
             break 
-        epoch_losses = [] 
+        batch_losses = [] 
         
-        for i in range(opf_data.num_batches):
-            svi_state, loss = svi.update(svi_state, opf_data, i, vi_parameters = vi_parameters)
-            epoch_losses.append(loss)
-        mean_epoch_loss = np.mean(epoch_losses)
-        log.debug(f'epoch: {epoch}, mean loss: {mean_epoch_loss}')
-        losses.append(mean_epoch_loss)
+        for X_norm, X, Y in get_minibatches(
+            opf_data.X_train_norm, 
+            opf_data.X_train, 
+            opf_data.Y_train, 
+            opf_data.batch_size):
+            svi_state, loss = svi.update(
+                svi_state, 
+                X_norm, X, Y = Y, 
+                opf_data = opf_data)
+            batch_losses.append(loss)
+        mean_batch_loss = np.mean(batch_losses)
+        log.debug(f'epoch: {epoch}, mean loss: {mean_batch_loss}')
+        losses.append(mean_batch_loss)
+        vi_parameters = svi.get_params(svi_state)
+        if epoch % 10 == 0: 
+            testing_loss = run_test(
+                opf_data, 
+                rng_key, 
+                vi_parameters,
+                log
+            )
+            stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
+        if stop_check.stop_training == True: 
+            break
         if time.time() - start_time > max_training_time:
+            stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
             log.info('Maximum training time reached')
             break
-    
-    
-    # log.debug(svi.get_params(svi_state))
-    # svi_state, loss = svi.update(svi_state, opf_data)
-    # log.debug(f'after update: {svi.get_params(svi_state)}')
-    # log.debug(loss)
-    # update_fn = jit(svi.update)
 
+    run_validation(opf_data, rng_key, stop_check.vi_parameters, log)
+    
+    
+def run_test(opf_data: OPFData, rng_key, vi_parameters, log):
     predictive = Predictive(
-        model=supervised_testing_model, 
-        guide=supervised_guide, 
-        params=svi.get_params(svi_state), 
-        num_samples=100, 
-        return_sites=("Y_pg", "Y_qg", "Y_vm", "Y_va"))
+        model = supervised_testing_model, 
+        guide = supervised_guide, 
+        params = vi_parameters, 
+        num_samples = 100, 
+        return_sites = ("Y_pg", "Y_qg", "Y_vm", "Y_va"))
 
-    predictions = predictive(rng_key, opf_data, -1)
+    predictions = predictive(
+        rng_key, 
+        opf_data.X_test_norm, 
+        opf_data.X_test,
+        Y = opf_data.Y_test,  
+        opf_data = opf_data, 
+        vi_parameters = vi_parameters)
+    
+    combined_predictions = jnp.concatenate([
+        predictions['Y_pg'],
+        predictions['Y_qg'],
+        predictions['Y_vm'],
+        predictions['Y_va']
+        ], axis=-1)
+    A = combined_predictions * opf_data.Y_std + opf_data.Y_mean
+    
+    y_predict_mean = A.mean(0) 
+    y_predict_std = A.std(0)
+    
+    pg, qg, vm, va = get_output_variables(y_predict_mean, opf_data) 
+    pg_t, qg_t, vm_t, va_t = get_output_variables(opf_data.Y_test, opf_data)
+    
+    mse_pg = mean_squared_error(pg, pg_t)
+    # mse_qg = mean_squared_error(qg, qg_t)
+    mse_va = mean_squared_error(va, va_t)
+    eq = get_equality_constraint_violations(opf_data.X_test, y_predict_mean, opf_data).sum(axis=1)
+    return mse_pg + mse_va + (eq**2).max()
+    
+def run_validation(opf_data: OPFData, rng_key, vi_parameters, log):
+    predictive = Predictive(
+        model = supervised_testing_model, 
+        guide = supervised_guide, 
+        params = vi_parameters, 
+        num_samples = 100, 
+        return_sites = ("Y_pg", "Y_qg", "Y_vm", "Y_va"))
+
+    predictions = predictive(
+        rng_key, 
+        opf_data.X_val_norm, 
+        opf_data.X_val,
+        Y = opf_data.Y_val,  
+        opf_data = opf_data, 
+        vi_parameters = vi_parameters)
+    
     combined_predictions = jnp.concatenate([
         predictions['Y_pg'],
         predictions['Y_qg'],
@@ -246,12 +317,8 @@ def supervised_run(
     mse = mean_squared_error(y_predict_mean, opf_data.Y_test)
     log.debug(f'total prediction MSE: {mse}')
     # cost MSE
-    cost = get_objective_value(y_predict_mean, opf_data)
-    cost_true = get_objective_value(opf_data.Y_test, opf_data)
-    # log.debug(cost)
-    # log.debug(cost_true)
-    # mse_cost = mean_squared_error(cost, cost_true)
-    # log.debug(f'cost prediction MSE: {mse_cost}')
+    # cost = get_objective_value(y_predict_mean, opf_data)
+    # cost_true = get_objective_value(opf_data.Y_test, opf_data)
     
     pg, qg, vm, va = get_output_variables(y_predict_mean, opf_data) 
     pg_t, qg_t, vm_t, va_t = get_output_variables(opf_data.Y_test, opf_data)
@@ -265,7 +332,11 @@ def supervised_run(
     mse_va = mean_squared_error(va, va_t)
     log.debug(f'va prediction MSE: {mse_va}')
     
+    feasibility = assess_feasibility(opf_data.X_test, y_predict_mean, opf_data)
+    mse_feasibility = sum(feasibility)/len(feasibility)
+    
     pf_residuals = get_equality_constraint_violations(opf_data.X_test, y_predict_mean, opf_data)
+    
     real_pf_res, imag_pf_res = jnp.array_split(pf_residuals, 2)
     log.debug(f'real power flow eq. residuals (max): {real_pf_res.max()}')
     log.debug(f'real power flow eq. residuals (min): {real_pf_res.min()}')

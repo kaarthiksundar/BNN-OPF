@@ -3,6 +3,7 @@ from typing_extensions import Annotated
 from pathlib import Path
 import logging
 import json
+import math
 
 from logger import CustomFormatter
 from dataloader import load_data
@@ -11,6 +12,8 @@ from bnncommon import *
 from supervisedmodel import supervised_run
 from classes import SampleCounts
 
+def roundup(x):
+    return int(math.ceil(x / 100.0)) * 100
 
 app = typer.Typer(pretty_exceptions_show_locals=False)
 
@@ -31,6 +34,10 @@ def main(
         '--test', '-e', 
         help = 'num testing points per group'
         )] = 50,
+    num_validation_per_group: Annotated[int, typer.Option(
+        '--val', '-v', 
+        help = 'num validation points per group'
+    )] = 50, 
     num_unsupervised_per_group: Annotated[int, typer.Option(
         '--unsupervised', '-u', 
         help = 'num unsupervised points per group (use power of 2)')] = 256, #500, 
@@ -63,6 +70,7 @@ def main(
     g = num_groups 
     r = num_train_per_group
     u = num_unsupervised_per_group 
+    v = num_validation_per_group
     b = batch_size
     if ((g & (g - 1) == 0) and g != 0)  == False:
         log.error(f'ensure num groups is a power of 2 and <= 20')
@@ -73,10 +81,10 @@ def main(
     if ((b & (b - 1) == 0) and b != 0 and b != 1) == False:
         log.error(f'ensure batch size is a power of 2 (for batching)')
         return
-    count = r + num_test_per_group + u
+    count = r + num_test_per_group + u + v
     if (count > 15000):
         log.error('One group contains only 15000 data points')
-        log.error('Ensure (--train) + (--test) + (--unsupervised) <= 15000')
+        log.error('Ensure (--train) + (--test) + (--unsupervised) + (--validation) <= 15000')
         log.error(f'current value: {count}')
         return
     if (Path(data_path + case + '.m').is_file() == False): 
@@ -86,11 +94,13 @@ def main(
     log.info(f'# training supervised training samples: {int(g*r)}')
     log.info(f'# training unsupervised training samples: {int(g*u)}')
     log.info(f'# testing samples: {int(g * num_test_per_group)}')
+    log.info(f'# validation samples: {int(g*v)}')
     sample_counts = SampleCounts(
         num_groups = g, 
         num_train_per_group = r, 
         num_test_per_group = num_test_per_group, 
         num_unsupervised_per_group = num_unsupervised_per_group, 
+        num_validation_per_group = num_validation_per_group,
         batch_size = batch_size
     )
     
@@ -107,7 +117,7 @@ def main(
         opf_data, log, 
         initial_learning_rate = data.get("initial_learning_rate", 1e-3), 
         decay_rate = data.get("decay_rate", 1e-4), 
-        max_training_time = data.get("max_training_time", 100.0), 
+        max_training_time = data.get("max_training_time", roundup(g*r)), 
         max_epochs = data.get("max_epochs", 100)
         )
     
