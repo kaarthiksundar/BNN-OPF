@@ -177,19 +177,22 @@ def supervised_guide(
         numpyro.sample(f'l_std_{name}', dist.Normal(likelihood_std_mean, likelihood_std_std))
     
 # run one round of supervised training 
-def supervised_run(
+def run_supervised(
     opf_data: OPFData, log, 
     initial_learning_rate = 1e-3, 
     decay_rate = 1e-4, 
-    max_training_time = 60.0, 
+    max_training_time = 1000.0, 
     max_epochs = 100, 
-    vi_parameters = None):
+    validate_every = 10, 
+    vi_parameters = None, 
+    stop_check = None):
     
     # initialize the optimizer
     learning_rate_schedule = time_based_decay_schedule(initial_learning_rate, decay_rate)
     optimizer = chain(clip(10.0), adam(learning_rate_schedule))
     elbo = TraceMeanField_ELBO()
-    stop_check = PatienceThresholdStoppingCriteria(log)
+    if stop_check == None: 
+        stop_check = PatienceThresholdStoppingCriteria(log)
     
     # initialize the stochastic variational inference 
     svi = SVI(
@@ -208,7 +211,7 @@ def supervised_run(
         opf_data = opf_data,
         vi_parameters = vi_parameters)
     
-    log.info('SVI initialization complete')
+    log.info('SVI initialization complete for supervised round')
     
     start_time = time.time()
     losses = [] 
@@ -219,7 +222,7 @@ def supervised_run(
             break 
         batch_losses = [] 
         
-        for X_norm, X, Y in get_minibatches(
+        for X_norm, X, Y in get_minibatches_supervised(
             opf_data.X_train_norm, 
             opf_data.X_train, 
             opf_data.Y_train, 
@@ -227,13 +230,14 @@ def supervised_run(
             svi_state, loss = svi.update(
                 svi_state, 
                 X_norm, X, Y = Y, 
-                opf_data = opf_data)
+                opf_data = opf_data, 
+                vi_parameters = vi_parameters)
             batch_losses.append(loss)
         mean_batch_loss = np.mean(batch_losses)
         log.debug(f'epoch: {epoch}, mean loss: {mean_batch_loss}')
         losses.append(mean_batch_loss)
         vi_parameters = svi.get_params(svi_state)
-        if epoch % 10 == 0: 
+        if epoch % validate_every == 0: 
             testing_loss = run_test(
                 opf_data, 
                 rng_key, 
@@ -244,11 +248,18 @@ def supervised_run(
         if stop_check.stop_training == True: 
             break
         if time.time() - start_time > max_training_time:
+            testing_loss = run_test(
+                opf_data, 
+                rng_key, 
+                vi_parameters,
+                log
+            )
             stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
             log.info('Maximum training time reached')
             break
-
     run_validation(opf_data, rng_key, stop_check.vi_parameters, log)
+    
+    return stop_check
     
     
 def run_test(opf_data: OPFData, rng_key, vi_parameters, log):
@@ -282,10 +293,10 @@ def run_test(opf_data: OPFData, rng_key, vi_parameters, log):
     pg_t, qg_t, vm_t, va_t = get_output_variables(opf_data.Y_test, opf_data)
     
     mse_pg = mean_squared_error(pg, pg_t)
-    # mse_qg = mean_squared_error(qg, qg_t)
+    mse_qg = mean_squared_error(qg, qg_t)
     mse_va = mean_squared_error(va, va_t)
     eq = get_equality_constraint_violations(opf_data.X_test, y_predict_mean, opf_data).sum(axis=1)
-    return mse_pg + mse_va + (eq**2).max()
+    return mse_pg + mse_va + mse_qg + (eq**2).max()
     
 def run_validation(opf_data: OPFData, rng_key, vi_parameters, log):
     predictive = Predictive(
@@ -313,12 +324,9 @@ def run_validation(opf_data: OPFData, rng_key, vi_parameters, log):
     
     y_predict_mean = A.mean(0) 
     y_predict_std = A.std(0)
-    # total MSE
+
     mse = mean_squared_error(y_predict_mean, opf_data.Y_test)
     log.debug(f'total prediction MSE: {mse}')
-    # cost MSE
-    # cost = get_objective_value(y_predict_mean, opf_data)
-    # cost_true = get_objective_value(opf_data.Y_test, opf_data)
     
     pg, qg, vm, va = get_output_variables(y_predict_mean, opf_data) 
     pg_t, qg_t, vm_t, va_t = get_output_variables(opf_data.Y_test, opf_data)

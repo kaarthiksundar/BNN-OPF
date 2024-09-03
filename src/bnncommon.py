@@ -34,13 +34,13 @@ def time_based_decay_schedule(initial_learning_rate, decay_rate):
         return initial_learning_rate / (1 + decay_rate * step)
     return schedule
 
-def get_minibatches(X, Y, batch_size):
+def get_minibatches_unsupervised(X, Y, batch_size):
     assert X.shape[0] == Y.shape[0]
     N = X.shape[0]
     for i in range(0, N, batch_size):
         yield X[i:i+batch_size], Y[i:i+batch_size]
         
-def get_minibatches(X, Y, Z, batch_size):
+def get_minibatches_supervised(X, Y, Z, batch_size):
     assert X.shape[0] == Y.shape[0]
     assert X.shape[0] == Z.shape[0]
     N = X.shape[0]

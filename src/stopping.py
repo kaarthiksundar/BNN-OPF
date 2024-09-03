@@ -28,6 +28,6 @@ class PatienceThresholdStoppingCriteria:
                 self.stop_training = True
                 self.log.info(f'Stopping training early at epoch {epoch + 1} due to patience criteria')
                 
-    def reset_wait(self, vi_parameters):
+    def reset_wait(self):
         self.wait = 0
-        self.vi_parameters = vi_parameters
+        self.stop_training = False

@@ -9,7 +9,8 @@ from logger import CustomFormatter
 from dataloader import load_data
 from acopf import *
 from bnncommon import *
-from supervisedmodel import supervised_run
+from supervisedmodel import run_supervised
+from unsupervisedmodel import run_unsupervised
 from classes import SampleCounts
 
 def roundup(x):
@@ -113,13 +114,25 @@ def main(
         log.info(f'Data downloaded and loaded, quitting because of only_dl_flag = {only_dl_flag}')
         return
 
-    supervised_run(
+    stop_check = run_supervised(
         opf_data, log, 
         initial_learning_rate = data.get("initial_learning_rate", 1e-3), 
         decay_rate = data.get("decay_rate", 1e-4), 
         max_training_time = data.get("max_training_time", roundup(g*r)), 
         max_epochs = data.get("max_epochs", 100)
         )
+    log.debug(f'best loss: {stop_check.best_loss}')
+    stop_check.patience = 5
+    stop_check = run_unsupervised(
+        opf_data, log, 
+        initial_learning_rate = data.get("initial_learning_rate", 1e-3), 
+        decay_rate = data.get("decay_rate", 1e-4), 
+        max_training_time = data.get("max_training_time", roundup(g*u)), 
+        max_epochs = data.get("max_epochs", 100), 
+        vi_parameters = stop_check.vi_parameters,
+        stop_check = stop_check, 
+        validate_every = 30)
+    log.debug(f'best loss: {stop_check.best_loss}')
     
 
 def get_logger(debug, warn, error): 

@@ -18,6 +18,8 @@ import time
 import numpy as np
 from sklearn.metrics import mean_squared_error
 from acopf import *
+from supervisedmodel import run_validation, run_test
+from stopping import *
 
 def unsupervised_model(
     X_norm, X, 
@@ -37,7 +39,7 @@ def unsupervised_model(
             w_shape = (input_dim_to_layer, num_nodes_per_layer)
             b_shape = num_nodes_per_layer 
             w = numpyro.sample(f'{block_name}_w{i+1}', normal(w_shape, std_multiplier))
-            b = numpyro.sample(f'{block_name}_b{i+1}', normal(b_shape, std_multiplier))
+            b = numpyro.deterministic(f'{block_name}_b{i+1}', jnp.zeros(b_shape))
             z = jax.nn.relu(jnp.matmul(z, w) + b)
             input_dim_to_layer = num_nodes_per_layer
         w_out_shape = (num_nodes_per_layer, params['output_block_dim'][block_name])
@@ -51,8 +53,7 @@ def unsupervised_model(
     L = assess_feasibility(X, z_e, opf_data)
     
     with numpyro.plate('data', size=num_data_points):
-        with handlers.scale(scale=1.0/1e13):
-            numpyro.sample('L', dist.Normal(L, 1e-14), obs=0.0)
+        numpyro.sample('L', dist.Normal(L, 1e-14), obs=0.0)
             
 # initial guide does not require vi_parameters
 def unsupervised_guide(
@@ -120,26 +121,78 @@ def run_unsupervised(
     decay_rate = 1e-4, 
     max_training_time = 60.0, 
     max_epochs = 100, 
-    vi_parameters = None):
+    validate_every = 10, 
+    vi_parameters = None, 
+    stop_check = None):
     
     # initialize the optimizer
     learning_rate_schedule = time_based_decay_schedule(initial_learning_rate, decay_rate)
     optimizer = chain(clip(10.0), adam(learning_rate_schedule))
     elbo = TraceMeanField_ELBO()
+    if stop_check == None: 
+        stop_check = PatienceThresholdStoppingCriteria(log)
+    else: 
+        stop_check.reset_wait()
+        vi_parameters = stop_check.vi_parameters
     # initialize the stochastic variational inference 
     svi = SVI(
-        supervised_model, 
-        supervised_guide, 
+        unsupervised_model, 
+        unsupervised_guide, 
         optimizer, 
         loss = elbo)
     
     rng_key = random.PRNGKey(0)
     svi_state = svi.init(
         rng_key, 
-        opf_data.X_unsupervised, 
         opf_data.X_unsupervised_norm, 
-        init_params = vi_parameters, 
+        opf_data.X_unsupervised, 
+        init_params = stop_check.vi_parameters, 
         opf_data = opf_data)
     
+    log.info('SVI initialization complete for unsupervised round')
     
-    log.info('SVI initialization complete')
+    start_time = time.time()
+    losses = [] 
+    for epoch in range(max_epochs):
+        if time.time() - start_time > max_training_time: 
+            stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
+            log.info('Maximum training time reached')
+            break 
+        batch_losses = [] 
+        
+        for X_norm, X in get_minibatches_unsupervised(
+            opf_data.X_unsupervised_norm, 
+            opf_data.X_unsupervised,
+            opf_data.batch_size):
+            svi_state, loss = svi.update(
+                svi_state, 
+                X_norm, X, 
+                opf_data = opf_data, 
+                vi_parameters = vi_parameters)
+            batch_losses.append(loss)
+        mean_batch_loss = np.mean(batch_losses)
+        log.debug(f'epoch: {epoch}, mean loss: {mean_batch_loss}')
+        losses.append(mean_batch_loss)
+        vi_parameters = svi.get_params(svi_state)
+        if epoch % validate_every == 0: 
+            testing_loss = run_test(
+                opf_data, 
+                rng_key, 
+                vi_parameters,
+                log
+            )
+            stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
+        if stop_check.stop_training == True: 
+            break
+        if time.time() - start_time > max_training_time:
+            testing_loss = run_test(
+                opf_data, 
+                rng_key, 
+                vi_parameters,
+                log
+            )
+            stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
+            log.info('Maximum training time reached')
+            break
+    run_validation(opf_data, rng_key, stop_check.vi_parameters, log)
+    return stop_check
