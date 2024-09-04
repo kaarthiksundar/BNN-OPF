@@ -181,18 +181,20 @@ def run_supervised(
     opf_data: OPFData, log, 
     initial_learning_rate = 1e-3, 
     decay_rate = 1e-4, 
-    max_training_time = 1000.0, 
+    max_training_time = 200.0, 
     max_epochs = 100, 
     validate_every = 10, 
     vi_parameters = None, 
     stop_check = None):
     
+    if (stop_check == None):
+        log.error('early stopping object has to be provided; cannot be None')
+        exit()
+
     # initialize the optimizer
     learning_rate_schedule = time_based_decay_schedule(initial_learning_rate, decay_rate)
     optimizer = chain(clip(10.0), adam(learning_rate_schedule))
     elbo = TraceMeanField_ELBO()
-    if stop_check == None: 
-        stop_check = PatienceThresholdStoppingCriteria(log)
     
     # initialize the stochastic variational inference 
     svi = SVI(
@@ -218,7 +220,7 @@ def run_supervised(
     for epoch in range(max_epochs):
         if time.time() - start_time > max_training_time: 
             stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
-            log.info('Maximum training time reached')
+            log.info('Maximum training time for supervised round exceeded')
             break 
         batch_losses = [] 
         
@@ -237,8 +239,8 @@ def run_supervised(
         log.debug(f'epoch: {epoch}, mean loss: {mean_batch_loss}')
         losses.append(mean_batch_loss)
         vi_parameters = svi.get_params(svi_state)
-        if epoch % validate_every == 0: 
-            testing_loss = run_test(
+        if (epoch % validate_every == 0) and (epoch != 0): 
+            testing_loss = run_test_supervised(
                 opf_data, 
                 rng_key, 
                 vi_parameters,
@@ -248,21 +250,19 @@ def run_supervised(
         if stop_check.stop_training == True: 
             break
         if time.time() - start_time > max_training_time:
-            testing_loss = run_test(
+            testing_loss = run_test_supervised(
                 opf_data, 
                 rng_key, 
                 vi_parameters,
                 log
             )
             stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
-            log.info('Maximum training time reached')
+            log.info('Maximum training time for supervised round exceeded')
             break
-    run_validation(opf_data, rng_key, stop_check.vi_parameters, log)
-    
-    return stop_check
+    return
     
     
-def run_test(opf_data: OPFData, rng_key, vi_parameters, log):
+def run_test_supervised(opf_data: OPFData, rng_key, vi_parameters, log):
     predictive = Predictive(
         model = supervised_testing_model, 
         guide = supervised_guide, 

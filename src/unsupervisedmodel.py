@@ -18,7 +18,7 @@ import time
 import numpy as np
 from sklearn.metrics import mean_squared_error
 from acopf import *
-from supervisedmodel import run_validation, run_test
+from supervisedmodel import *
 from stopping import *
 
 def unsupervised_model(
@@ -125,15 +125,15 @@ def run_unsupervised(
     vi_parameters = None, 
     stop_check = None):
     
+    if (stop_check == None):
+        log.error('Early stopping object has to be provided; cannot be None')
+        exit()
+        
     # initialize the optimizer
     learning_rate_schedule = time_based_decay_schedule(initial_learning_rate, decay_rate)
     optimizer = chain(clip(10.0), adam(learning_rate_schedule))
     elbo = TraceMeanField_ELBO()
-    if stop_check == None: 
-        stop_check = PatienceThresholdStoppingCriteria(log)
-    else: 
-        stop_check.reset_wait()
-        vi_parameters = stop_check.vi_parameters
+    
     # initialize the stochastic variational inference 
     svi = SVI(
         unsupervised_model, 
@@ -156,7 +156,7 @@ def run_unsupervised(
     for epoch in range(max_epochs):
         if time.time() - start_time > max_training_time: 
             stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
-            log.info('Maximum training time reached')
+            log.info('Maximum training time exceeded for unsupervised round')
             break 
         batch_losses = [] 
         
@@ -175,7 +175,7 @@ def run_unsupervised(
         losses.append(mean_batch_loss)
         vi_parameters = svi.get_params(svi_state)
         if epoch % validate_every == 0: 
-            testing_loss = run_test(
+            testing_loss = run_test_unsupervised(
                 opf_data, 
                 rng_key, 
                 vi_parameters,
@@ -185,14 +185,44 @@ def run_unsupervised(
         if stop_check.stop_training == True: 
             break
         if time.time() - start_time > max_training_time:
-            testing_loss = run_test(
+            testing_loss = run_test_unsupervised(
                 opf_data, 
                 rng_key, 
                 vi_parameters,
                 log
             )
             stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
-            log.info('Maximum training time reached')
+            log.info('Maximum training time exceeded for unsupervised round')
             break
-    run_validation(opf_data, rng_key, stop_check.vi_parameters, log)
-    return stop_check
+    return
+
+def run_test_unsupervised(opf_data: OPFData, rng_key, vi_parameters, log):
+    predictive = Predictive(
+        model = supervised_testing_model, 
+        guide = supervised_guide, 
+        params = vi_parameters, 
+        num_samples = 100, 
+        return_sites = ("Y_pg", "Y_qg", "Y_vm", "Y_va"))
+
+    predictions = predictive(
+        rng_key, 
+        opf_data.X_test_norm, 
+        opf_data.X_test,
+        Y = opf_data.Y_test,  
+        opf_data = opf_data, 
+        vi_parameters = vi_parameters)
+    
+    combined_predictions = jnp.concatenate([
+        predictions['Y_pg'],
+        predictions['Y_qg'],
+        predictions['Y_vm'],
+        predictions['Y_va']
+        ], axis=-1)
+    A = combined_predictions * opf_data.Y_std + opf_data.Y_mean
+    
+    y_predict_mean = A.mean(0) 
+    y_predict_std = A.std(0)
+    
+    eq = get_equality_constraint_violations(opf_data.X_test, y_predict_mean, opf_data).sum(axis=1)
+    ineq = get_inequality_constraint_violations(y_predict_mean, opf_data)
+    return (eq**2).max() + ineq.max()

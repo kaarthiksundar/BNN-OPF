@@ -11,6 +11,7 @@ from acopf import *
 from bnncommon import *
 from supervisedmodel import run_supervised
 from unsupervisedmodel import run_unsupervised
+from sandwiched import run_sandwich
 from classes import SampleCounts
 
 def roundup(x):
@@ -113,26 +114,36 @@ def main(
     if (only_dl_flag == True):
         log.info(f'Data downloaded and loaded, quitting because of only_dl_flag = {only_dl_flag}')
         return
-
-    stop_check = run_supervised(
+    
+    run_sandwich(
         opf_data, log, 
         initial_learning_rate = data.get("initial_learning_rate", 1e-3), 
         decay_rate = data.get("decay_rate", 1e-4), 
-        max_training_time = data.get("max_training_time", roundup(g*r)), 
-        max_epochs = data.get("max_epochs", 100)
-        )
-    log.debug(f'best loss: {stop_check.best_loss}')
-    stop_check.patience = 5
-    stop_check = run_unsupervised(
-        opf_data, log, 
-        initial_learning_rate = data.get("initial_learning_rate", 1e-3), 
-        decay_rate = data.get("decay_rate", 1e-4), 
-        max_training_time = data.get("max_training_time", roundup(g*u)), 
+        sandwich_rounds = data.get("sandwich_rounds", 3), 
+        max_training_time_per_round = data.get("max_training_time_per_round", 200.0), 
         max_epochs = data.get("max_epochs", 100), 
-        vi_parameters = stop_check.vi_parameters,
-        stop_check = stop_check, 
-        validate_every = 30)
-    log.debug(f'best loss: {stop_check.best_loss}')
+        early_stopping_trigger_supervised = data.get("early_stopping_trigger_supervised", 15), 
+        early_stopping_trigger_unsupervised = data.get("early_stopping_trigger_unsupervised", 30)
+        )
+    # stop_check = run_supervised(
+    #     opf_data, log, 
+    #     initial_learning_rate = data.get("initial_learning_rate", 1e-3), 
+    #     decay_rate = data.get("decay_rate", 1e-4), 
+    #     max_training_time = data.get("max_training_time", roundup(g*r)), 
+    #     max_epochs = data.get("max_epochs", 100)
+    #     )
+    # log.debug(f'best loss: {stop_check.best_loss}')
+    # stop_check.patience = 5
+    # stop_check = run_unsupervised(
+    #     opf_data, log, 
+    #     initial_learning_rate = data.get("initial_learning_rate", 1e-3), 
+    #     decay_rate = data.get("decay_rate", 1e-4), 
+    #     max_training_time = data.get("max_training_time", roundup(g*u)), 
+    #     max_epochs = data.get("max_epochs", 100), 
+    #     vi_parameters = stop_check.vi_parameters,
+    #     stop_check = stop_check, 
+    #     validate_every = 30)
+    # log.debug(f'best loss: {stop_check.best_loss}')
     
 
 def get_logger(debug, warn, error): 
