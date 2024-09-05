@@ -9,10 +9,10 @@ from logger import CustomFormatter
 from dataloader import load_data
 from acopf import *
 from bnncommon import *
-from supervisedmodel import run_supervised
-from unsupervisedmodel import run_unsupervised
+from supervisedmodel import run_validation
 from sandwiched import run_sandwich
 from classes import SampleCounts
+from jax import random
 
 def roundup(x):
     return int(math.ceil(x / 100.0)) * 100
@@ -115,7 +115,8 @@ def main(
         log.info(f'Data downloaded and loaded, quitting because of only_dl_flag = {only_dl_flag}')
         return
     
-    run_sandwich(
+    rng_key = random.PRNGKey(0)
+    vi_parameters = run_sandwich(
         opf_data, log, 
         initial_learning_rate = data.get("initial_learning_rate", 1e-3), 
         decay_rate = data.get("decay_rate", 1e-4), 
@@ -123,8 +124,13 @@ def main(
         max_training_time_per_round = data.get("max_training_time_per_round", 200.0), 
         max_epochs = data.get("max_epochs", 100), 
         early_stopping_trigger_supervised = data.get("early_stopping_trigger_supervised", 15), 
-        early_stopping_trigger_unsupervised = data.get("early_stopping_trigger_unsupervised", 30)
+        early_stopping_trigger_unsupervised = data.get("early_stopping_trigger_unsupervised", 30), 
+        rng_key = rng_key
         )
+    
+    run_validation(opf_data, rng_key, vi_parameters, log)
+    
+    
     # stop_check = run_supervised(
     #     opf_data, log, 
     #     initial_learning_rate = data.get("initial_learning_rate", 1e-3), 

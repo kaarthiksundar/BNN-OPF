@@ -10,8 +10,9 @@ def run_sandwich(
     sandwich_rounds = 3, 
     max_training_time_per_round = 200.0, 
     max_epochs = 200, 
-    early_stopping_trigger_supervised = 15, 
-    early_stopping_trigger_unsupervised = 30
+    early_stopping_trigger_supervised = 25, 
+    early_stopping_trigger_unsupervised = 30,
+    rng_key = random.PRNGKey(0)
 ):
     
     # create early stopping for both the supervised and unsupervised runs
@@ -39,7 +40,8 @@ def run_sandwich(
             max_epochs = max_epochs, 
             validate_every = early_stopping_trigger_supervised, 
             vi_parameters = vi_parameters, 
-            stop_check = supervised_early_stopper
+            stop_check = supervised_early_stopper, 
+            rng_key = rng_key
         )
         test_loss = supervised_early_stopper.best_loss
         log.info(f'supervised testing loss: {test_loss}')
@@ -47,6 +49,7 @@ def run_sandwich(
         supervised_params.append(vi_parameters)
         supervised_early_stopper.reset_wait() 
         
+        continue
         # run unsupervised
         run_unsupervised(
             opf_data, log, 
@@ -54,22 +57,23 @@ def run_sandwich(
             decay_rate = decay_rate, 
             max_training_time = max_time_unsupervised, 
             max_epochs = max_epochs, 
-            validate_every = early_stopping_trigger_supervised, 
+            validate_every = early_stopping_trigger_unsupervised, 
             vi_parameters = vi_parameters, 
-            stop_check = unsupervised_early_stopper
+            stop_check = unsupervised_early_stopper, 
+            rng_key = rng_key
         )
         test_loss = unsupervised_early_stopper.best_loss 
         log.info(f'unsupervised testing loss: {test_loss}')
         vi_parameters = unsupervised_early_stopper.vi_parameters 
-        unsupervised_params.append(vi_parameters)
-        unsupervised_early_stopper.reset_wait()
-        for name in params['output_block_dim'].keys(): 
+        for name in model_params['output_block_dim'].keys(): 
             mean_key = f'l_std_{name}_mean'
             std_key = f'l_std_{name}_std'
-            print(vi_parameters[mean_key])
-            print(vi_parameters[std_key])
-            
-        break
+            vi_parameters[mean_key] = supervised_params[-1][mean_key]
+            vi_parameters[std_key] = supervised_params[-1][std_key]
+        unsupervised_params.append(vi_parameters)
+        unsupervised_early_stopper.reset_wait()
+        
+    return vi_parameters
             
 
     

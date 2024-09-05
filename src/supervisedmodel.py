@@ -185,7 +185,8 @@ def run_supervised(
     max_epochs = 100, 
     validate_every = 10, 
     vi_parameters = None, 
-    stop_check = None):
+    stop_check = None, 
+    rng_key = random.PRNGKey(0)):
     
     if (stop_check == None):
         log.error('early stopping object has to be provided; cannot be None')
@@ -203,7 +204,6 @@ def run_supervised(
         optimizer, 
         loss = elbo)
     
-    rng_key = random.PRNGKey(0)
     svi_state = svi.init(
         rng_key, 
         opf_data.X_train_norm, 
@@ -326,19 +326,19 @@ def run_validation(opf_data: OPFData, rng_key, vi_parameters, log):
     y_predict_std = A.std(0)
 
     mse = mean_squared_error(y_predict_mean, opf_data.Y_test)
-    log.debug(f'total prediction MSE: {mse}')
+    log.info(f'total prediction MSE: {mse}')
     
     pg, qg, vm, va = get_output_variables(y_predict_mean, opf_data) 
     pg_t, qg_t, vm_t, va_t = get_output_variables(opf_data.Y_test, opf_data)
     
     mse_pg = mean_squared_error(pg, pg_t)
-    log.debug(f'pg prediction MSE: {mse_pg}')
+    log.info(f'pg prediction MSE: {mse_pg}')
     mse_qg = mean_squared_error(qg, qg_t)
-    log.debug(f'qg prediction MSE: {mse_qg}')
+    log.info(f'qg prediction MSE: {mse_qg}')
     mse_vm = mean_squared_error(vm, vm_t)
-    log.debug(f'vm prediction MSE: {mse_vm}')
+    log.info(f'vm prediction MSE: {mse_vm}')
     mse_va = mean_squared_error(va, va_t)
-    log.debug(f'va prediction MSE: {mse_va}')
+    log.info(f'va prediction MSE: {mse_va}')
     
     feasibility = assess_feasibility(opf_data.X_test, y_predict_mean, opf_data)
     mse_feasibility = sum(feasibility)/len(feasibility)
@@ -346,16 +346,16 @@ def run_validation(opf_data: OPFData, rng_key, vi_parameters, log):
     pf_residuals = get_equality_constraint_violations(opf_data.X_test, y_predict_mean, opf_data)
     
     real_pf_res, imag_pf_res = jnp.array_split(pf_residuals, 2)
-    log.debug(f'real power flow eq. residuals (max): {real_pf_res.max()}')
-    log.debug(f'real power flow eq. residuals (min): {real_pf_res.min()}')
-    log.debug(f'reactive power flow eq. residuals (max): {imag_pf_res.max()}')
-    log.debug(f'reactive power flow eq. residuals (min): {imag_pf_res.min()}')
+    log.info(f'real power flow eq. residuals (max): {real_pf_res.max()}')
+    log.info(f'real power flow eq. residuals (min): {real_pf_res.min()}')
+    log.info(f'reactive power flow eq. residuals (max): {imag_pf_res.max()}')
+    log.info(f'reactive power flow eq. residuals (min): {imag_pf_res.min()}')
     pg_bound_violations = get_pg_bound_violations(pg, opf_data)
     max_violation = (pg_bound_violations[0].max(), pg_bound_violations[1].max())
-    log.debug(f'max pg bound violation (l, u): {max_violation}')
+    log.info(f'max pg bound violation (l, u): {max_violation}')
     qg_bound_violations = get_qg_bound_violations(qg, opf_data)
     max_violation = (qg_bound_violations[0].max(), qg_bound_violations[1].max())
-    log.debug(f'max qg bound violation (l, u): {max_violation}')
+    log.info(f'max qg bound violation (l, u): {max_violation}')
     vm_bound_violations = get_vm_bound_violations(vm, opf_data)
     max_violation = (vm_bound_violations[0].max(), vm_bound_violations[1].max())
-    log.debug(f'max vm bound violation (l, u): {max_violation}')
+    log.info(f'max vm bound violation (l, u): {max_violation}')

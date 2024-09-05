@@ -123,7 +123,8 @@ def run_unsupervised(
     max_epochs = 100, 
     validate_every = 10, 
     vi_parameters = None, 
-    stop_check = None):
+    stop_check = None, 
+    rng_key = random.PRNGKey(0)):
     
     if (stop_check == None):
         log.error('Early stopping object has to be provided; cannot be None')
@@ -141,7 +142,6 @@ def run_unsupervised(
         optimizer, 
         loss = elbo)
     
-    rng_key = random.PRNGKey(0)
     svi_state = svi.init(
         rng_key, 
         opf_data.X_unsupervised_norm, 
