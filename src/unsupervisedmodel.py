@@ -151,11 +151,12 @@ def run_unsupervised(
     
     log.info('SVI initialization complete for unsupervised round')
     
+    validation_loss = float('inf')
     start_time = time.time()
     losses = [] 
     for epoch in range(max_epochs):
         if time.time() - start_time > max_training_time: 
-            stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
+            stop_check.on_epoch_end(epoch, validation_loss, vi_parameters)
             log.info('Maximum training time exceeded for unsupervised round')
             break 
         batch_losses = [] 
@@ -175,28 +176,28 @@ def run_unsupervised(
         losses.append(mean_batch_loss)
         vi_parameters = svi.get_params(svi_state)
         if epoch % validate_every == 0: 
-            testing_loss = run_test_unsupervised(
+            validation_loss = run_validation_unsupervised(
                 opf_data, 
                 rng_key, 
                 vi_parameters,
                 log
             )
-            stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
+            stop_check.on_epoch_end(epoch, validation_loss, vi_parameters)
         if stop_check.stop_training == True: 
             break
         if time.time() - start_time > max_training_time:
-            testing_loss = run_test_unsupervised(
+            validation_loss = run_validation_unsupervised(
                 opf_data, 
                 rng_key, 
                 vi_parameters,
                 log
             )
-            stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
+            stop_check.on_epoch_end(epoch, validation_loss, vi_parameters)
             log.info('Maximum training time exceeded for unsupervised round')
             break
     return
 
-def run_test_unsupervised(opf_data: OPFData, rng_key, vi_parameters, log):
+def run_validation_unsupervised(opf_data: OPFData, rng_key, vi_parameters, log):
     predictive = Predictive(
         model = supervised_testing_model, 
         guide = supervised_guide, 
@@ -206,9 +207,9 @@ def run_test_unsupervised(opf_data: OPFData, rng_key, vi_parameters, log):
 
     predictions = predictive(
         rng_key, 
-        opf_data.X_test_norm, 
-        opf_data.X_test,
-        Y = opf_data.Y_test,  
+        opf_data.X_val_norm, 
+        opf_data.X_val,
+        Y = opf_data.Y_val,  
         opf_data = opf_data, 
         vi_parameters = vi_parameters)
     
@@ -223,6 +224,6 @@ def run_test_unsupervised(opf_data: OPFData, rng_key, vi_parameters, log):
     y_predict_mean = A.mean(0) 
     y_predict_std = A.std(0)
     
-    eq = get_equality_constraint_violations(opf_data.X_test, y_predict_mean, opf_data).sum(axis=1)
+    eq = get_equality_constraint_violations(opf_data.X_val, y_predict_mean, opf_data).sum(axis=1)
     ineq = get_inequality_constraint_violations(y_predict_mean, opf_data)
     return (eq**2).max() + ineq.max()

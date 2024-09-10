@@ -182,7 +182,7 @@ def run_supervised(
     initial_learning_rate = 1e-3, 
     decay_rate = 1e-4, 
     max_training_time = 200.0, 
-    max_epochs = 100, 
+    max_epochs = 200, 
     validate_every = 10, 
     vi_parameters = None, 
     stop_check = None, 
@@ -216,10 +216,11 @@ def run_supervised(
     log.info('SVI initialization complete for supervised round')
     
     start_time = time.time()
+    validation_loss = float('inf')
     losses = [] 
     for epoch in range(max_epochs):
         if time.time() - start_time > max_training_time: 
-            stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
+            stop_check.on_epoch_end(epoch, validation_loss, vi_parameters)
             log.info('Maximum training time for supervised round exceeded')
             break 
         batch_losses = [] 
@@ -240,29 +241,29 @@ def run_supervised(
         losses.append(mean_batch_loss)
         vi_parameters = svi.get_params(svi_state)
         if (epoch % validate_every == 0) and (epoch != 0): 
-            testing_loss = run_test_supervised(
+            validation_loss = run_validation_supervised(
                 opf_data, 
                 rng_key, 
                 vi_parameters,
                 log
             )
-            stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
+            stop_check.on_epoch_end(epoch, validation_loss, vi_parameters)
         if stop_check.stop_training == True: 
             break
         if time.time() - start_time > max_training_time:
-            testing_loss = run_test_supervised(
+            validation_loss = run_validation_supervised(
                 opf_data, 
                 rng_key, 
                 vi_parameters,
                 log
             )
-            stop_check.on_epoch_end(epoch, testing_loss, vi_parameters)
+            stop_check.on_epoch_end(epoch, validation_loss, vi_parameters)
             log.info('Maximum training time for supervised round exceeded')
             break
     return
     
     
-def run_test_supervised(opf_data: OPFData, rng_key, vi_parameters, log):
+def run_validation_supervised(opf_data: OPFData, rng_key, vi_parameters, log):
     predictive = Predictive(
         model = supervised_testing_model, 
         guide = supervised_guide, 
@@ -272,9 +273,9 @@ def run_test_supervised(opf_data: OPFData, rng_key, vi_parameters, log):
 
     predictions = predictive(
         rng_key, 
-        opf_data.X_test_norm, 
-        opf_data.X_test,
-        Y = opf_data.Y_test,  
+        opf_data.X_val_norm, 
+        opf_data.X_val,
+        Y = opf_data.Y_val,  
         opf_data = opf_data, 
         vi_parameters = vi_parameters)
     
@@ -290,15 +291,15 @@ def run_test_supervised(opf_data: OPFData, rng_key, vi_parameters, log):
     y_predict_std = A.std(0)
     
     pg, qg, vm, va = get_output_variables(y_predict_mean, opf_data) 
-    pg_t, qg_t, vm_t, va_t = get_output_variables(opf_data.Y_test, opf_data)
+    pg_t, qg_t, vm_t, va_t = get_output_variables(opf_data.Y_val, opf_data)
     
     mse_pg = mean_squared_error(pg, pg_t)
     mse_qg = mean_squared_error(qg, qg_t)
     mse_va = mean_squared_error(va, va_t)
-    eq = get_equality_constraint_violations(opf_data.X_test, y_predict_mean, opf_data).sum(axis=1)
+    eq = get_equality_constraint_violations(opf_data.X_val, y_predict_mean, opf_data).sum(axis=1)
     return mse_pg + mse_va + mse_qg + (eq**2).max()
     
-def run_validation(opf_data: OPFData, rng_key, vi_parameters, log):
+def run_test(opf_data: OPFData, rng_key, vi_parameters, log):
     predictive = Predictive(
         model = supervised_testing_model, 
         guide = supervised_guide, 
@@ -308,9 +309,9 @@ def run_validation(opf_data: OPFData, rng_key, vi_parameters, log):
 
     predictions = predictive(
         rng_key, 
-        opf_data.X_val_norm, 
-        opf_data.X_val,
-        Y = opf_data.Y_val,  
+        opf_data.X_test_norm, 
+        opf_data.X_test,
+        Y = opf_data.Y_test,  
         opf_data = opf_data, 
         vi_parameters = vi_parameters)
     
