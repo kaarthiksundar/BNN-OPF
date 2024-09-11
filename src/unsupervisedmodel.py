@@ -176,7 +176,7 @@ def run_unsupervised(
         log.debug(f'epoch: {epoch}, mean loss: {mean_batch_loss}')
         losses.append(mean_batch_loss)
         vi_parameters = svi.get_params(svi_state)
-        if epoch % validate_every == 0: 
+        if (epoch % validate_every == 0) and (epoch != 0):  
             validation_loss = elbo_val.loss(
                 rng_key, 
                 vi_parameters, 

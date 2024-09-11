@@ -14,6 +14,7 @@ from stopping import *
 from sandwiched import run_sandwich
 from classes import SampleCounts
 from jax import random
+from modelio import *
 
 def roundup(x):
     return int(math.ceil(x / 100.0)) * 100
@@ -153,7 +154,10 @@ def main(
         )
         vi_parameters = unsupervised_early_stopper.vi_parameters 
 
-    run_test(opf_data, rng_key, vi_parameters, log)
+    config = config_file.split('.')[0]
+    output_file = f'./output/{case}_{num_groups}_{num_train_per_group}_{run_type}_{config}.pkl'
+    write_to_file(output_file, rng_key, sample_counts, vi_parameters)  
+    # run_test(opf_data, rng_key, vi_parameters, log)
     
 
 def get_logger(debug, warn, error): 
