@@ -18,7 +18,7 @@ class PatienceThresholdStoppingCriteria:
         
         self.log.info(f'current loss: {current_loss}, best loss: {self.best_loss}')
         if current_loss < self.best_loss - self.threshold:
-            self.log.info(f'model store at epoch {epoch}; better loss')
+            self.log.info(f'model store at epoch/round {epoch}; better loss')
             self.best_loss = current_loss
             self.wait = 0
             self.vi_parameters = vi_parameters
@@ -26,7 +26,7 @@ class PatienceThresholdStoppingCriteria:
             self.wait += 1
             if self.wait >= self.patience:
                 self.stop_training = True
-                self.log.info(f'Stopping training early at epoch {epoch + 1} due to patience criteria')
+                self.log.info(f'Stopping training early at epoch/round {epoch + 1} due to patience criteria')
                 
     def reset_wait(self):
         self.wait = 0

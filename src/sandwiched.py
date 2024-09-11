@@ -26,6 +26,9 @@ def run_sandwich(
         log, patience = patience_supervised)
     unsupervised_early_stopper = PatienceThresholdStoppingCriteria(
         log, patience = patience_unsupervised)
+    sandwiched_early_stopper = PatienceThresholdStoppingCriteria(
+        log, patience = 3
+    )
     
     max_time_supervised = 0.4 * max_training_time_per_round 
     max_time_unsupervised = 0.6 * max_training_time_per_round
@@ -55,12 +58,19 @@ def run_sandwich(
         vi_parameters = supervised_early_stopper.vi_parameters
         supervised_params.append(vi_parameters)
         supervised_early_stopper.reset_wait() 
+        sandwiched_early_stopper.on_epoch_end(
+            round + 1, 
+            supervised_early_stopper.best_loss, 
+            supervised_early_stopper.vi_parameters)
+        if sandwiched_early_stopper.stop_training == True:
+            log.info(f'Stopping criteria for sandwiched algorithm passed at {round + 1}, breaking')
+            break
         
         # check overall time
         elapsed = time.time() - start_time
         remaining_time = max_training_time - elapsed
         if time.time() - start_time > max_training_time:
-            log.info(f'Maximum training time exceeded at supervised round {round}')
+            log.info(f'Maximum training time exceeded at supervised round {round + 1}')
             break
         
         # run unsupervised
@@ -90,7 +100,7 @@ def run_sandwich(
         elapsed = time.time() - start_time
         remaining_time = max_training_time - elapsed
         if time.time() - start_time > max_training_time:
-            log.info(f'Maximum training time exceeded at unsupervised round {round}')
+            log.info(f'Maximum training time exceeded at unsupervised round {round + 1}')
             break
         
     return vi_parameters
