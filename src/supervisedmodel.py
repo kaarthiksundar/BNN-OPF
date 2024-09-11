@@ -196,6 +196,7 @@ def run_supervised(
     learning_rate_schedule = time_based_decay_schedule(initial_learning_rate, decay_rate)
     optimizer = chain(clip(10.0), adam(learning_rate_schedule))
     elbo = TraceMeanField_ELBO()
+    elbo_val = TraceMeanField_ELBO(num_particles = 50)
     
     # initialize the stochastic variational inference 
     svi = SVI(
@@ -229,7 +230,7 @@ def run_supervised(
             opf_data.X_train_norm, 
             opf_data.X_train, 
             opf_data.Y_train, 
-            opf_data.batch_size):
+            opf_data.batch_size):                                
             svi_state, loss = svi.update(
                 svi_state, 
                 X_norm, X, Y = Y, 
@@ -241,28 +242,52 @@ def run_supervised(
         losses.append(mean_batch_loss)
         vi_parameters = svi.get_params(svi_state)
         if (epoch % validate_every == 0) and (epoch != 0): 
-            validation_loss = run_validation_supervised(
-                opf_data, 
+            validation_loss = elbo_val.loss(
                 rng_key, 
-                vi_parameters,
-                log
+                vi_parameters, 
+                supervised_model, 
+                supervised_guide, 
+                opf_data.X_val_norm, 
+                opf_data.X_val,
+                Y = opf_data.Y_val, 
+                opf_data = opf_data, 
+                vi_parameters = vi_parameters
             )
+            # validation_loss = run_validation_supervised(
+            #     opf_data, 
+            #     rng_key, 
+            #     vi_parameters,
+            #     log
+            # )
+            log.debug(f'validation loss {validation_loss}')
             stop_check.on_epoch_end(epoch, validation_loss, vi_parameters)
         if stop_check.stop_training == True: 
             break
         if time.time() - start_time > max_training_time:
-            validation_loss = run_validation_supervised(
-                opf_data, 
+            # validation_loss = run_validation_supervised(
+            #     opf_data, 
+            #     rng_key, 
+            #     vi_parameters,
+            #     log
+            # )
+            validation_loss = elbo_val.loss(
                 rng_key, 
-                vi_parameters,
-                log
+                vi_parameters, 
+                supervised_model, 
+                supervised_guide, 
+                opf_data.X_val_norm, 
+                opf_data.X_val,
+                Y = opf_data.Y_val, 
+                opf_data = opf_data, 
+                vi_parameters = vi_parameters
             )
             stop_check.on_epoch_end(epoch, validation_loss, vi_parameters)
             log.info('Maximum training time for supervised round exceeded')
             break
     return
     
-    
+
+# this model is not needed    
 def run_validation_supervised(opf_data: OPFData, rng_key, vi_parameters, log):
     predictive = Predictive(
         model = supervised_testing_model, 
