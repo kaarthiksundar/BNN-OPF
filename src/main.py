@@ -29,11 +29,15 @@ def main(
     num_groups: Annotated[int, typer.Option(
         '--numgroups', '-n', 
         help = 'data is split into 20 groups with each having 15000 data points use in {1, 2, 4, 8, 16}'
-        )] = 2, 
+        )] = 1, 
     num_train_per_group: Annotated[int, typer.Option(
         '--train', '-r', 
         help = 'num training points per group (provide power of 2)'
         )] = 512, 
+    num_test_per_group: Annotated[int, typer.Option(
+        '--test', '-e', 
+        help = 'num testing points per group'
+        )] = 1000,
     run_type: Annotated[str, typer.Option('--runtype')] = 'semisupervisedBNN',  
     track_loss: Annotated[bool, typer.Option(
         '--trackloss', help = 'track all losses for plots')] = False,  
@@ -68,13 +72,14 @@ def main(
     data = json.load(open(data_path + config_file))
     batch_size = data["batch_size"]
     
-    # follows a 75 % train, 15 % validation and 10 % testing data split per group
-    split = (0.75, 0.15, 0.10)
+    # follows a 80 % train, 20 % validation and test data is separate
+    log.info(f'num groups to dl: {num_groups}')
+    split = (0.80, 0.20)
     g = num_groups 
     r = num_train_per_group
     total = math.ceil(r/split[0])
     u = int(r*4.0)
-    t = math.ceil(total*split[2])
+    t = num_test_per_group
     v = math.ceil(total*split[1])
     b = batch_size
     if ((g & (g - 1) == 0) and g != 0)  == False:
