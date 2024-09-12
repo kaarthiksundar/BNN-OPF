@@ -118,3 +118,9 @@ def assess_feasibility(X, Y, opf_data, eq_weight = 1.0, ineq_weight = 1.0):
     ineq = get_inequality_constraint_violations(Y, opf_data)
     return eq_weight * (eq**2).sum(axis=1) + ineq_weight * (ineq**2).sum(axis=1)
     
+    
+def assess_feasibility_pp(X, Y, opf_data):
+    eq = get_equality_constraint_violations(X, Y, opf_data)
+    ineq = get_inequality_constraint_violations(Y, opf_data)
+    return eq,ineq
+    
