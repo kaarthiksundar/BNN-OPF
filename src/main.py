@@ -157,7 +157,7 @@ def main(
             stop_check = supervised_early_stopper, 
             rng_key = rng_key
         )
-        vi_parameters = unsupervised_early_stopper.vi_parameters 
+        vi_parameters = supervised_early_stopper.vi_parameters 
 
     config = config_file.split('.')[0]
     output_file = f'./output/{case}_{num_groups}_{num_train_per_group}_{run_type}_{config}.pkl'
