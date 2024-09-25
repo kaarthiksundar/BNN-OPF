@@ -204,7 +204,7 @@ def construct_admittance_matrix(data: dict):
 # create generator info
 def get_generator_info(data: dict): 
     mva_base = data['elements']['generator']['1']['mbase']
-    gens = [ (key, val) for key, val in data['elements']['generator'].items() ]
+    gens = [ (key, val) for key, val in data['elements']['generator'].items() if val['in_service'] == True]
     gens.sort(key = lambda x: int(x[0]))
     idx_to_gen = [key for (key, _) in gens]
     gen_to_idx = { x[0] : i for (i, x) in enumerate(gens) }

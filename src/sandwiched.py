@@ -94,7 +94,7 @@ def run_sandwich(
             vi_parameters[mean_key] = supervised_params[-1][mean_key]
             vi_parameters[std_key] = supervised_params[-1][std_key]
         unsupervised_params.append(vi_parameters)
-        unsupervised_early_stopper.reset_wait()
+        unsupervised_early_stopper.reset()
         
         # check overall time
         elapsed = time.time() - start_time

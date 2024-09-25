@@ -31,3 +31,9 @@ class PatienceThresholdStoppingCriteria:
     def reset_wait(self):
         self.wait = 0
         self.stop_training = False
+        
+    def reset(self):
+        self.best_loss = jnp.inf
+        self.vi_parameters = None 
+        self.wait = 0 
+        self.stop_training = False
