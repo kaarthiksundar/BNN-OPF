@@ -44,8 +44,8 @@ def run_sandwich(
         # run supervised 
         run_supervised(
             opf_data, log, 
-            initial_learning_rate = initial_learning_rate, 
-            decay_rate = decay_rate, 
+            initial_learning_rate = initial_learning_rate/(round + 1), 
+            decay_rate = decay_rate/(round + 1), 
             max_training_time = min(remaining_time, max_time_supervised), 
             max_epochs = max_epochs, 
             validate_every = early_stopping_trigger_supervised, 
@@ -76,8 +76,8 @@ def run_sandwich(
         # run unsupervised
         run_unsupervised(
             opf_data, log, 
-            initial_learning_rate = initial_learning_rate,
-            decay_rate = decay_rate, 
+            initial_learning_rate = initial_learning_rate/(round + 1),
+            decay_rate = decay_rate/(round + 1), 
             max_training_time = min(remaining_time, max_time_unsupervised), 
             max_epochs = max_epochs, 
             validate_every = early_stopping_trigger_unsupervised, 
@@ -94,7 +94,7 @@ def run_sandwich(
             vi_parameters[mean_key] = supervised_params[-1][mean_key]
             vi_parameters[std_key] = supervised_params[-1][std_key]
         unsupervised_params.append(vi_parameters)
-        unsupervised_early_stopper.reset()
+        unsupervised_early_stopper.reset_wait()
         
         # check overall time
         elapsed = time.time() - start_time

@@ -105,7 +105,7 @@ def load_data(
     
 # does not support DC lines and switches (ignore them for now)
 def construct_admittance_matrix(data: dict):
-    mva_base = data['elements']['generator']['1']['mbase']
+    mva_base = data['system']['baseMVA']
     buses = [ (key, val) for key, val in data['elements']['bus'].items() ]
     buses.sort(key = lambda x: int(x[0]))
     
@@ -203,7 +203,7 @@ def construct_admittance_matrix(data: dict):
 
 # create generator info
 def get_generator_info(data: dict): 
-    mva_base = data['elements']['generator']['1']['mbase']
+    mva_base = data['system']['baseMVA']
     gens = [ (key, val) for key, val in data['elements']['generator'].items() if val['in_service'] == True]
     gens.sort(key = lambda x: int(x[0]))
     idx_to_gen = [key for (key, _) in gens]
