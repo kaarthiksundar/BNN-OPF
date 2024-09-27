@@ -30,3 +30,4 @@ logs/*
 scripts/*
 !data/*.m
 !*.gitkeep
+requirements.txt

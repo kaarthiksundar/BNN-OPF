@@ -10,12 +10,14 @@ import math
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torchsummary import summary
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
 from dataloader import load_data
 from acopf import *
 from bnncommon import *
+from dnn import *
 from supervisedmodel import *
 from stopping import *
 from sandwiched import run_sandwich
@@ -27,38 +29,10 @@ from modelio import *
 def roundup(x):
     return int(math.ceil(x / 100.0)) * 100
 
-class MLP(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_hidden_layers, output_dim, dim_reduction_layer = False):
-        super(MLP, self).__init__()
-        self.activation = nn.ReLU()
-        self.nhidden = num_hidden_layers
-        self.dim_red = dim_reduction_layer
-        self.fclayers = nn.ModuleList([nn.Linear(input_dim, hidden_dim)])
-        for d in range(num_hidden_layers-1):
-                self.fclayers.append(nn.Linear(hidden_dim, hidden_dim))
-        if dim_reduction_layer == True:
-            dim_red = roundup(0.7*output_dim)
-            self.fclayers.append(nn.Linear(hidden_dim, dim_red))
-            self.fclayers.append(nn.Linear(dim_red, output_dim))
-        else:
-            self.fclayers.append(nn.Linear(hidden_dim, output_dim))
-
-    def forward(self, x):
-        for d in range(self.nhidden):
-            x = self.fclayers[d](x)
-            x = self.activation(x)
-        if self.dim_red:
-            x = self.fclayers[self.nhidden](x)
-            x = self.activation(x)
-            x = self.fclayers[self.nhidden+1](x)
-        else:
-            x = self.fclayers[self.nhidden](x)
-        return x
-
 
 def main(
     data_path: Annotated[str, typer.Option('--datapath', '-p')] = './data/', 
-    case: Annotated[str, typer.Option('--case', '-c')] = 'pglib_opf_case118_ieee',
+    case: Annotated[str, typer.Option('--case', '-c')] =  'pglib_opf_case118_ieee',
     config_file: Annotated[str, typer.Option('--config', '-o')] = 'config.json',
     num_groups: Annotated[int, typer.Option(
         '--numgroups', '-n', 
@@ -169,78 +143,85 @@ def main(
     X_test = torch.tensor(np.asarray(opf_data.X_test))
     Y_test = torch.tensor(np.asarray(opf_data.Y_test))
     dataset = TfData(X_train, Y_train)
-    trainloader=DataLoader(dataset=dataset,batch_size=opf_data.batch_size)
+    trainloader=DataLoader(dataset=dataset, batch_size=opf_data.batch_size, shuffle=True)
     input_dim = X_train.shape[1]
     output_dim = Y_train.shape[1]
-    hidden_dim = roundup(1.5*output_dim)
-    num_hidden = 2
-    learning_rate = 0.001
-    num_epochs = 600
-    model = MLP(input_dim, hidden_dim, num_hidden,  output_dim)
+    hidden_dim = roundup(3*output_dim)
+    num_hidden = 4
+    learning_rate = 0.1
+    num_epochs = 2000
+    model = AdvancedMLP(input_dim, hidden_dim, num_hidden,  output_dim, drop_rate = 0.7)
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    losses = []
-    val_losses = []
-    val_feasibility = []
     scheduler = optim.lr_scheduler.PolynomialLR(optimizer, total_iters=num_epochs, power=1)
-    lambda_l1 = 1E-4
+    lambda_l1 = 0.0001
     equality_penalty = 0.0
     inequality_penalty = 0.0
     pytorch_total_params = sum(p.numel() for p in model.parameters())
+    summary(model,(input_dim,))
+
+
+    losses = []
+    val_losses = []
+    val_feasibility = []
+    val_objs = []
     for epoch in range(num_epochs):
+        model.train()
+        running_loss = 0.0
+
         for X_batch, Y_batch in trainloader:
             l1_regularization = 0.
             for param in model.parameters():
                 l1_regularization += param.abs().sum()
             outputs = model(X_batch)
-            loss = criterion(outputs, Y_batch) + (lambda_l1/pytorch_total_params)*l1_regularization
+            loss = criterion(outputs, Y_batch
+                             ) + (lambda_l1/pytorch_total_params)*l1_regularization
             # Backward pass and optimization
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            running_loss += loss.item()
         scheduler.step()
 
-        losses.append(loss.item())
+        losses.append(running_loss)
+        model.eval()
         Y_pred_val = model(X_val).detach()
         val_loss = criterion(Y_pred_val, Y_val)
-        val_mean_feas = np.mean(assess_feasibility(np.asarray(X_val),Y_pred_val.numpy(), opf_data))
+        val_mean_feas = np.mean(assess_feasibility(
+            np.asarray(X_val), Y_pred_val.numpy(), opf_data))
+        val_obj = get_objective_value(Y_pred_val.numpy(), opf_data)
         val_losses.append(val_loss.item())
         val_feasibility.append(val_mean_feas)
+        val_objs.append(max(val_obj))
+
 
         if (epoch+1) % 50 == 0:
-            print(f'Epoch [{epoch+1}/{num_epochs}], val_loss: {val_loss.item():.4f}')
+            print(f'Epoch [{epoch+1}/{num_epochs}], val_loss: {val_loss.item():.4f}, val max obj: {val_objs[-1]:.4f}')
 
 # Plot the loss curve
-    
+    model.eval()
     Y_pred = model(X_test)
     test_loss = criterion(Y_pred, Y_test)
+    true_cost = get_objective_value(np.asarray(Y_test), opf_data)
     feasibility_violation = assess_feasibility(np.asarray(X_test), Y_pred.detach().numpy(), opf_data)
+    test_obj = get_objective_value(Y_pred.detach().numpy(), opf_data)
+
+    obj_err = max(np.abs(true_cost - test_obj))
 
     print(f'Test MSE: {test_loss.item():.4f}')
-    print(f'Test max feasibility violation:{np.max(feasibility_violation):.4f}')
+    print(f'Test L_inf Objective Error: {obj_err:.4f}')
+    print(f'Test L_inf feasibility violation:{np.max(feasibility_violation):.4f}')
     print(f'Test mean feasibility violation:{np.mean(feasibility_violation):.4f}')
     plt.plot(losses,label = "train MSE")
     plt.plot(val_losses, label = "validattion MSE")
     plt.plot(val_feasibility, label = "val mean feasibility")
+    plt.plot(val_objs, label = "val max cost")
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.yscale('log')
     plt.legend()
     plt.title('Training Loss/Last batch')
     plt.show()
-
-
-class TfData(Dataset):
-    def __init__(self,X_train, Y_train):
-        self.num_samples = X_train.shape[0]
-        self.X = torch.tensor(X_train, dtype=torch.float32)
-        self.Y = torch.tensor(Y_train, dtype=torch.float32)
-    def __len__(self):
-        return self.num_samples
-
-    def __getitem__(self, idx):
-        return self.X[idx,:], self.Y[idx,:]
-
 
 
 
