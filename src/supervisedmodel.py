@@ -51,7 +51,8 @@ def supervised_model(
     z_e = z_e * opf_data.Y_std + opf_data.Y_mean
     L_predict = assess_feasibility(X, z_e, opf_data)
     L_true = assess_feasibility(X, Y, opf_data)
-    
+   
+
     # define likelihood variances 
     mean = params['likelihood_var_prior_mean']
     std = params['likelihood_var_prior_std']
@@ -64,7 +65,7 @@ def supervised_model(
         with handlers.scale(scale=1.0):
             for name in params['output_block_dim'].keys(): 
                 numpyro.sample(f'Y_{name}', dist.Normal(z[name], likelihood_std[name]).to_event(1), obs=Y[:, slices[name]])
-            numpyro.sample('L', dist.Normal(L_predict, likelihood_std['pg'] * 0.01), obs=L_true)
+            numpyro.sample('L', dist.Normal(L_predict, likelihood_std['pg'] * 10), obs=L_true)
      
 # supervised testing model definition
 def supervised_testing_model(
@@ -196,7 +197,7 @@ def run_supervised(
     learning_rate_schedule = time_based_decay_schedule(initial_learning_rate, decay_rate)
     optimizer = chain(clip(10.0), adam(learning_rate_schedule))
     elbo = TraceMeanField_ELBO()
-    elbo_val = TraceMeanField_ELBO(num_particles = 50)
+    elbo_val = TraceMeanField_ELBO(num_particles = 10)
     
     # initialize the stochastic variational inference 
     svi = SVI(
@@ -293,7 +294,7 @@ def run_validation_supervised(opf_data: OPFData, rng_key, vi_parameters, log):
         model = supervised_testing_model, 
         guide = supervised_guide, 
         params = vi_parameters, 
-        num_samples = 100, 
+        num_samples = 300, 
         return_sites = ("Y_pg", "Y_qg", "Y_vm", "Y_va"))
 
     predictions = predictive(
@@ -329,7 +330,7 @@ def run_test(opf_data: OPFData, rng_key, vi_parameters, log):
         model = supervised_testing_model, 
         guide = supervised_guide, 
         params = vi_parameters, 
-        num_samples = 100, 
+        num_samples = 300, 
         return_sites = ("Y_pg", "Y_qg", "Y_vm", "Y_va"))
 
     predictions = predictive(

@@ -27,7 +27,7 @@ def run_sandwich(
     unsupervised_early_stopper = PatienceThresholdStoppingCriteria(
         log, patience = patience_unsupervised)
     sandwiched_early_stopper = PatienceThresholdStoppingCriteria(
-        log, patience = 3
+        log, patience = 5
     )
     
     max_time_supervised = 0.4 * max_training_time_per_round 

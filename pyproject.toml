@@ -15,7 +15,6 @@ numpy = "^1.26.0"
 scipy = "^1.14.0"
 gridx-egret = {path = "Egret"}
 torch_geometric = {git = "https://github.com/pyg-team/pytorch_geometric.git", branch="master"}
-jax = "^0.4.31"
 tqdm = "^4.66.5"
 numpyro = "^0.15.2"
 optax = "^0.2.3"

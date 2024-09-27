@@ -53,7 +53,7 @@ def unsupervised_model(
     L = assess_feasibility(X, z_e, opf_data)
     
     with numpyro.plate('data', size=num_data_points):
-        numpyro.sample('L', dist.Normal(L, 1e-14), obs=0.0)
+        numpyro.sample('L', dist.Normal(L, 1e-10), obs=0.0)
             
 # initial guide does not require vi_parameters
 def unsupervised_guide(
@@ -134,7 +134,7 @@ def run_unsupervised(
     learning_rate_schedule = time_based_decay_schedule(initial_learning_rate, decay_rate)
     optimizer = chain(clip(10.0), adam(learning_rate_schedule))
     elbo = TraceMeanField_ELBO()
-    elbo_val = TraceMeanField_ELBO(num_particles = 50)
+    elbo_val = TraceMeanField_ELBO(num_particles = 10)
     
     # initialize the stochastic variational inference 
     svi = SVI(

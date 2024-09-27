@@ -54,8 +54,8 @@ def main(
     log = get_logger(debug, warn, error)
     
     # cli-arg validation
-    loaded_cases = ['pglib_opf_case30_ieee', 'pglib_opf_case57_ieee',
-                    'pglib_opf_case118_ieee', 'pglib_opf_case500_goc']
+    loaded_cases = ['pglib_opf_case14_ieee','pglib_opf_case30_ieee', 'pglib_opf_case57_ieee','pglib_opf_case118_ieee', 
+                    'pglib_opf_case500_goc','pglib_opf_case2000_goc','pglib_opf_case4661_sdet']
     if case not in loaded_cases:
         log.error(f'{case} can be only lie in {loaded_cases}')
         return 
@@ -78,7 +78,7 @@ def main(
     g = num_groups 
     r = num_train_per_group
     total = math.ceil(r/split[0])
-    u = int(r*4.0)
+    u = int(r*1.0)
     t = num_test_per_group
     v = math.ceil(total*split[1])
     b = batch_size

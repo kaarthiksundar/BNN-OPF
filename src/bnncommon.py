@@ -20,7 +20,7 @@ def get_model_params(opf_data: OPFData) -> Dict:
               'num_nodes_per_hidden_layer' : 2 * nloads, 
               'output_dim' : 2 * (ngens + nbuses),
               'num_layers' : 2, 
-              'weight_prior_std_multiplier' : 1e-2, 
+              'weight_prior_std_multiplier' : 1e-1, 
               'likelihood_var_prior_mean' : 1e-5, 
               'likelihood_var_prior_std' : 1e-6
               } 
