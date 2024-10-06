@@ -66,7 +66,7 @@ def get_qg_bound_violations(qg, opf_data) -> jax.Array:
     qg_upper = jnp.maximum(qg - opf_data.qg_bounds.upper, 0.0)
     return qg_lower, qg_upper 
 
-# vm violations 
+# vm violations
 def get_vm_bound_violations(vm, opf_data) -> jax.Array: 
     vm_lower = jnp.maximum(opf_data.vm_bounds.lower - vm, 0.0)
     vm_upper = jnp.maximum(vm - opf_data.vm_bounds.upper, 0.0)

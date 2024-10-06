@@ -13,6 +13,7 @@ import torch.optim as optim
 from torchsummary import summary
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
+from torch.linalg import vector_norm
 import matplotlib.pyplot as plt
 from dataloader import load_data
 from acopf import *
@@ -140,14 +141,18 @@ def main(
     Y_train = np.asarray(opf_data.Y_train)
     X_val = torch.tensor(np.asarray(opf_data.X_val))
     Y_val = torch.tensor(np.asarray(opf_data.Y_val))
+    #return X_val, Y_val, opf_data
     X_test = torch.tensor(np.asarray(opf_data.X_test))
     Y_test = torch.tensor(np.asarray(opf_data.Y_test))
     dataset = TfData(X_train, Y_train)
     trainloader=DataLoader(dataset=dataset, batch_size=opf_data.batch_size, shuffle=True)
     input_dim = X_train.shape[1]
     output_dim = Y_train.shape[1]
+
     hidden_dim = roundup(3*output_dim)
-    num_hidden = 4
+   # num_hidden = 4
+    #hidden_dim = roundup(1.2*output_dim)
+    num_hidden = 2
     learning_rate = 0.1
     num_epochs = 2000
     model = AdvancedMLP(input_dim, hidden_dim, num_hidden,  output_dim, drop_rate = 0.7)
@@ -155,11 +160,13 @@ def main(
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     scheduler = optim.lr_scheduler.PolynomialLR(optimizer, total_iters=num_epochs, power=1)
     lambda_l1 = 0.0001
-    equality_penalty = 0.0
-    inequality_penalty = 0.0
+    lambda_cost = 1E-5
+    lambda_eq = 1E9 ##NOTE This can be chosen after one step in primal-dual method
+    lambda_ineq = 0.0
     pytorch_total_params = sum(p.numel() for p in model.parameters())
     summary(model,(input_dim,))
 
+    costs = getcosts(opf_data)
 
     losses = []
     val_losses = []
@@ -174,8 +181,10 @@ def main(
             for param in model.parameters():
                 l1_regularization += param.abs().sum()
             outputs = model(X_batch)
-            loss = criterion(outputs, Y_batch
-                             ) + (lambda_l1/pytorch_total_params)*l1_regularization
+            loss = criterion(outputs, Y_batch) 
+            + (lambda_l1/pytorch_total_params)*l1_regularization 
+            + lambda_cost*torch.max(opf_cost(outputs, opf_data, *costs))
+            + lambda_eq*vector_norm(equality_violations(X_batch, outputs, opf_data), ord=1)
             # Backward pass and optimization
             optimizer.zero_grad()
             loss.backward()
@@ -247,7 +256,7 @@ def get_logger(debug, warn, error):
     log.addHandler(fh) 
     return log
 
-output = main()        
 
- # Define the MLP model
+main()
+
 

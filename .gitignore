@@ -31,3 +31,4 @@ scripts/*
 !data/*.m
 !*.gitkeep
 requirements.txt
+*.swp

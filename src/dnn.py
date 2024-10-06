@@ -1,7 +1,9 @@
 import torch
+import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
+from acopf import get_input_variables, get_output_variables
 
 
 class MLP(nn.Module):
@@ -72,3 +74,40 @@ class TfData(Dataset):
 
     def __getitem__(self, idx):
         return self.X[idx, :], self.Y[idx, :]
+
+def getcosts(opf_data):
+    qc = torch.tensor(np.asarray(opf_data.gen_cost.q))
+    lc = torch.tensor(np.asarray(opf_data.gen_cost.l))
+    cc = torch.tensor(np.asarray(opf_data.gen_cost.c))
+    return qc, lc, cc
+
+def opf_cost(Y,opf_data, qc, lc, cc):
+    pg, _, _, _ = get_output_variables(Y, opf_data)
+    cost =   (qc* pg**2).sum(axis=1) + (lc* pg).sum(axis=1) + (torch.ones(pg.shape[0]))*sum(cc) 
+    return cost
+
+def equality_violations(X,Y, opf_data):
+    pg, qg, vm, va = get_output_variables(Y, opf_data)
+    pd, qd = get_input_variables(X, opf_data)
+    # voltage shape: (num_samples * num_buses)
+    voltage = vm * (torch.cos(va) + 1j * torch.sin(va))
+    v_t = voltage.transpose(0, 1)
+    y_bus = opf_data.y_bus.astype(np.complex64)
+    y_bus = torch.sparse_coo_tensor(y_bus.nonzero(), y_bus.data, y_bus.shape)
+
+    bus_injection = torch.multiply(voltage, torch.conj(
+                   torch.mm(voltage, y_bus.transpose(0, 1))))
+    generation = torch.zeros(
+        (pg.shape[0], opf_data.get_num_buses()), dtype=torch.complex64)
+    generation[:, opf_data.gen_bus_idx] = (pg + 1j*qg)[:, :]
+
+    load = torch.zeros(
+        (pg.shape[0], opf_data.get_num_buses()), dtype=torch.complex64)
+    load[:, opf_data.load_bus_idx] = (pd + 1j*qd)[:, :]
+
+    residual = generation - load - bus_injection
+    temp = torch.concatenate([torch.real(residual), torch.imag(residual)], axis = 1)
+    return temp
+
+
+    
