@@ -109,5 +109,54 @@ def equality_violations(X,Y, opf_data):
     temp = torch.concatenate([torch.real(residual), torch.imag(residual)], axis = 1)
     return temp
 
+def convert_bounds_to_torch(opf_data):
+    # Convert pg_bounds
+    pg_lower = torch.tensor(np.asarray(opf_data.pg_bounds.lower), dtype=torch.float32)
+    pg_upper = torch.tensor(np.asarray(opf_data.pg_bounds.upper), dtype=torch.float32)
 
-    
+    # Convert qg_bounds
+    qg_lower = torch.tensor(np.asarray(opf_data.qg_bounds.lower), dtype=torch.float32)
+    qg_upper = torch.tensor(np.asarray(opf_data.qg_bounds.upper), dtype=torch.float32)
+
+    # Convert vm_bounds
+    vm_lower = torch.tensor(np.asarray(opf_data.vm_bounds.lower), dtype=torch.float32)
+    vm_upper = torch.tensor(np.asarray(opf_data.vm_bounds.upper), dtype=torch.float32)
+
+    # Return all bounds as a dictionary or individual tensors based on need
+    return {
+        'pg_bounds': {'lower': pg_lower, 'upper': pg_upper},
+        'qg_bounds': {'lower': qg_lower, 'upper': qg_upper},
+        'vm_bounds': {'lower': vm_lower, 'upper': vm_upper}
+    }
+
+def pg_bound_violations_torch(pg, bounds):
+    pg_lower = torch.maximum(bounds['pg_bounds']['lower'] - pg, torch.tensor(0.0))
+    pg_upper = torch.maximum(pg - bounds['pg_bounds']['upper'], torch.tensor(0.0))
+    return pg_lower, pg_upper
+
+def qg_bound_violations_torch(qg, bounds):
+    qg_lower = torch.maximum(bounds['qg_bounds']['lower'] - qg, torch.tensor(0.0))
+    qg_upper = torch.maximum(qg - bounds['qg_bounds']['upper'], torch.tensor(0.0))
+    return qg_lower, qg_upper
+
+def vm_bound_violations_torch(vm, bounds):
+    vm_lower = torch.maximum(bounds['vm_bounds']['lower'] - vm, torch.tensor(0.0))
+    vm_upper = torch.maximum(vm - bounds['vm_bounds']['upper'], torch.tensor(0.0))
+    return vm_lower, vm_upper
+
+def inequality_constraint_violations_torch(Y, opf_data, bounds, line_limits=False):
+    pg, qg, vm, va = get_output_variables(Y, opf_data)
+    pg_lower, pg_upper = pg_bound_violations_torch(pg, bounds)
+    qg_lower, qg_upper = qg_bound_violations_torch(qg, bounds)
+    vm_lower, vm_upper = vm_bound_violations_torch(vm, bounds)
+    if not line_limits:
+        residual = torch.cat([
+            pg_lower, pg_upper,
+            qg_lower, qg_upper,
+            vm_lower, vm_upper
+        ], dim=1)
+        return residual
+
+
+
+

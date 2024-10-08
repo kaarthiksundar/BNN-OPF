@@ -149,24 +149,25 @@ def main(
     input_dim = X_train.shape[1]
     output_dim = Y_train.shape[1]
 
-    hidden_dim = roundup(3*output_dim)
+    hidden_dim = roundup(1.2*output_dim)
    # num_hidden = 4
     #hidden_dim = roundup(1.2*output_dim)
     num_hidden = 2
-    learning_rate = 0.1
-    num_epochs = 2000
+    learning_rate = 0.01
+    num_epochs = 100
     model = AdvancedMLP(input_dim, hidden_dim, num_hidden,  output_dim, drop_rate = 0.7)
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     scheduler = optim.lr_scheduler.PolynomialLR(optimizer, total_iters=num_epochs, power=1)
-    lambda_l1 = 0.0001
-    lambda_cost = 1E-5
-    lambda_eq = 1E9 ##NOTE This can be chosen after one step in primal-dual method
-    lambda_ineq = 0.0
+    lambda_l1 = 1E-4
+    lambda_cost = 0.0
+    lambda_eq = 1E-3 ##NOTE This can be chosen after one step in primal-dual method
+    lambda_ineq = 1E-5
     pytorch_total_params = sum(p.numel() for p in model.parameters())
     summary(model,(input_dim,))
 
     costs = getcosts(opf_data)
+    bounds = convert_bounds_to_torch(opf_data) 
 
     losses = []
     val_losses = []
@@ -177,39 +178,53 @@ def main(
         running_loss = 0.0
 
         for X_batch, Y_batch in trainloader:
-            l1_regularization = 0.
+            l1_regularization = 0.0
             for param in model.parameters():
                 l1_regularization += param.abs().sum()
             outputs = model(X_batch)
-            loss = criterion(outputs, Y_batch) 
-            + (lambda_l1/pytorch_total_params)*l1_regularization 
-            + lambda_cost*torch.max(opf_cost(outputs, opf_data, *costs))
-            + lambda_eq*vector_norm(equality_violations(X_batch, outputs, opf_data), ord=1)
+
+            batch_cost = opf_cost(outputs, opf_data, *costs)
+            batch_eq_violations = equality_violations(X_batch, outputs, opf_data)
+            batch_ineq_violations = inequality_constraint_violations_torch(outputs, opf_data, bounds)
+            loss = (criterion(outputs, Y_batch)
+            + (lambda_l1/pytorch_total_params)*l1_regularization
+            + lambda_cost*torch.max(batch_cost)
+            + lambda_eq*vector_norm(batch_eq_violations, ord=1)
+            + lambda_ineq*torch.sum(batch_ineq_violations))
             # Backward pass and optimization
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
-        scheduler.step()
 
+        scheduler.step()
         losses.append(running_loss)
         model.eval()
         Y_pred_val = model(X_val).detach()
-        val_loss = criterion(Y_pred_val, Y_val)
+        Y_pred_val = Y_val ##XXX Sanity check
+        val_cost = opf_cost(Y_pred_val, opf_data, *costs)
+        val_eq_violations = equality_violations(X_val, Y_pred_val, opf_data)
+        val_ineq_violations = inequality_constraint_violations_torch(Y_pred_val, opf_data, bounds)
+
+        val_mse = criterion(Y_pred_val, Y_val)
+        val_max_cost = torch.max(val_cost)
+        val_eq_cost = vector_norm(val_eq_violations, ord=1)
+        val_ineq_cost = vector_norm(val_ineq_violations, ord=1)
+
         val_mean_feas = np.mean(assess_feasibility(
             np.asarray(X_val), Y_pred_val.numpy(), opf_data))
-        val_obj = get_objective_value(Y_pred_val.numpy(), opf_data)
-        val_losses.append(val_loss.item())
+        val_losses.append(val_mse.item())
         val_feasibility.append(val_mean_feas)
-        val_objs.append(max(val_obj))
+        val_objs.append(val_max_cost)
 
 
         if (epoch+1) % 50 == 0:
-            print(f'Epoch [{epoch+1}/{num_epochs}], val_loss: {val_loss.item():.4f}, val max obj: {val_objs[-1]:.4f}')
+            print(f'Epoch [{epoch+1}/{num_epochs}], val mse: {val_mse.item():.4f}, val obj: {val_max_cost:.4f},  val eq cost = {val_eq_cost:.4f}, val ineq cost = {val_ineq_cost:.4f}')
 
 # Plot the loss curve
     model.eval()
-    Y_pred = model(X_test)
+    #Y_pred = model(X_test)
+    Y_pred = Y_test
     test_loss = criterion(Y_pred, Y_test)
     true_cost = get_objective_value(np.asarray(Y_test), opf_data)
     feasibility_violation = assess_feasibility(np.asarray(X_test), Y_pred.detach().numpy(), opf_data)
@@ -229,7 +244,7 @@ def main(
     plt.ylabel('Loss')
     plt.yscale('log')
     plt.legend()
-    plt.title('Training Loss/Last batch')
+    plt.title('Training Loss')
     plt.show()
 
 
