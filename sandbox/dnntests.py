@@ -226,7 +226,7 @@ def main(
 
         if (epoch+1) % 50 == 0:
             print(f'Epoch [{epoch+1}/{num_epochs}], val mse: {val_mse.item():.4f}, val obj: {val_max_cost:.4f},  val eq cost = {val_eq_cost:.4f}, val ineq cost = {val_ineq_cost:.4f}, val feasibility score = {val_mean_feas:.4f}')
-           # compare_torch_jax(X_val, Y_pred_val, bounds, opf_data)
+            compare_torch_jax(X_val, Y_pred_val, bounds, opf_data)
 
 # Plot the loss curve
     model.eval()
@@ -280,9 +280,14 @@ def get_logger(debug, warn, error):
 
 def compare_torch_jax(X,Y, bounds, opf_data):
         in_eq_torch = inequality_constraint_violations_torch(Y, opf_data, bounds)
-        in_eq_jax = get_equality_constraint_violations(Y.detach().numpy(), opf_data)
+        in_eq_jax = get_inequality_constraint_violations(Y.detach().numpy(), opf_data)
+        eq_jax =  get_equality_constraint_violations(X.detach().numpy(), Y.detach().numpy(), opf_data)
+        eq_torch =  equality_violations(X, Y, opf_data) 
+
         print(f'torch inequality:{ vector_norm(in_eq_torch, ord=1):.8f}')
-        print(f'jax inequality:{ vector_norm(in_eq_jax, ord=1):.8f}')
+        print(f'jax inequality:{ np.linalg.norm(in_eq_jax, ord=1):.8f}')
+        print(f'jax equality:{ np.linalg.norm(eq_jax, ord=1):.8f}')
+        print(f'torch equality:{ vector_norm(eq_torch, ord=1):.8f}')
         return 
 
 
