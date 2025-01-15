@@ -30,6 +30,79 @@ from modelio import *
 def roundup(x):
     return int(math.ceil(x / 100.0)) * 100
 
+def model_train_block(lambda_l1, mode):
+        model.train()
+        #Traning block
+        running_loss = 0.0
+
+        for X_batch, Y_batch in trainloader:
+            l1_regularization = 0.0
+            for param in model.parameters():
+                l1_regularization += param.abs().sum()
+            outputs = model(X_batch)
+            if mode = "supervised"
+                loss = (criterion(outputs, Y_batch)
+                + (lambda_l1/pytorch_total_params)*l1_regularization)
+
+            elif mode = "unsupervised"
+                batch_cost = opf_cost(outputs, opf_data, *costs)
+                batch_eq_violations = equality_violations(X_batch, outputs, opf_data)
+                batch_ineq_violations = inequality_constraint_violations_torch(outputs, opf_data, bounds)
+                loss = ((lambda_l1/pytorch_total_params)*l1_regularization
+                + torch.max(batch_cost)
+                + lambda_eq*vector_norm(batch_eq_violations, ord=1)
+                + lambda_ineq*torch.sum(batch_ineq_violations))
+
+            elif mode = "mixed"
+                batch_cost = opf_cost(outputs, opf_data, *costs)
+                batch_eq_violations = equality_violations(X_batch, outputs, opf_data)
+                batch_ineq_violations = inequality_constraint_violations_torch(outputs, opf_data, bounds)
+                loss = (criterion(outputs, Y_batch)
+                + (lambda_l1/pytorch_total_params)*l1_regularization
+                + lambda_cost*torch.max(batch_cost)
+                + lambda_eq*vector_norm(batch_eq_violations, ord=1)
+                + lambda_ineq*torch.sum(batch_ineq_violations))
+
+
+            # Backward pass and optimization
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item()
+    return
+
+
+
+def  model_validate_block():
+        model.eval()
+     #   Y_pred_val = model(X_val).detach() 
+        Y_pred_val = Y_val ##XXX Sanity check
+
+
+        ##Metrics on the validation set
+        val_cost = opf_cost(Y_pred_val, opf_data, *costs)
+       # return Y_pred_val, opf_data, bounds
+        val_eq_violations = equality_violations(X_val, Y_pred_val, opf_data) ##XXX  This gives non zero values even if exact Y is used
+        val_ineq_violations = inequality_constraint_violations_torch(Y_pred_val, opf_data, bounds)
+        val_mse = criterion(Y_pred_val, Y_val)
+        val_max_cost = torch.max(val_cost)
+        val_eq_cost = vector_norm(val_eq_violations, ord=1)
+        val_ineq_cost = vector_norm(val_ineq_violations, ord=1)
+
+        val_mean_feas = np.mean(assess_feasibility(
+            np.asarray(X_val), Y_pred_val.numpy(), opf_data))
+        val_losses.append(val_mse.item())
+        val_feasibility.append(val_mean_feas)
+        val_objs.append(val_max_cost)
+        return 
+
+
+
+
+
+
+
+
 
 def main(
     data_path: Annotated[str, typer.Option('--datapath', '-p')] = './data/', 
@@ -165,6 +238,8 @@ def main(
     lambda_ineq = 1E-2
     pytorch_total_params = sum(p.numel() for p in model.parameters())
     summary(model,(input_dim,))
+    num_rounds =  3
+
 
     costs = getcosts(opf_data)
     bounds = convert_bounds_to_torch(opf_data)
@@ -174,130 +249,11 @@ def main(
     val_feasibility = []
     val_objs = []
 
-    for epoch in range(num_epochs):
-        model.train()
-        #Traning block
-        running_loss = 0.0
-
-        for X_batch, Y_batch in trainloader:
-            l1_regularization = 0.0
-            for param in model.parameters():
-                l1_regularization += param.abs().sum()
-            outputs = model(X_batch)
-
-            batch_cost = opf_cost(outputs, opf_data, *costs)
-            batch_eq_violations = equality_violations(X_batch, outputs, opf_data)
-            batch_ineq_violations = inequality_constraint_violations_torch(outputs, opf_data, bounds)
-            loss = (criterion(outputs, Y_batch)
-            + (lambda_l1/pytorch_total_params)*l1_regularization
-            + lambda_cost*torch.max(batch_cost)
-            + lambda_eq*vector_norm(batch_eq_violations, ord=1)
-            + lambda_ineq*torch.sum(batch_ineq_violations))
-            # Backward pass and optimization
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item()
-
-        scheduler.step()
-        losses.append(running_loss)
-        # Cross validation block
-        model.eval()
-     #   Y_pred_val = model(X_val).detach() 
-        Y_pred_val = Y_val ##XXX Sanity check
 
 
-        ##Metrics on the validation set
-        val_cost = opf_cost(Y_pred_val, opf_data, *costs)
-       # return Y_pred_val, opf_data, bounds
-        val_eq_violations = equality_violations(X_val, Y_pred_val, opf_data) ##XXX  This gives non zero values even if exact Y is used
-        val_ineq_violations = inequality_constraint_violations_torch(Y_pred_val, opf_data, bounds)
-        val_mse = criterion(Y_pred_val, Y_val)
-        val_max_cost = torch.max(val_cost)
-        val_eq_cost = vector_norm(val_eq_violations, ord=1)
-        val_ineq_cost = vector_norm(val_ineq_violations, ord=1)
-
-        val_mean_feas = np.mean(assess_feasibility(
-            np.asarray(X_val), Y_pred_val.numpy(), opf_data))
-        val_losses.append(val_mse.item())
-        val_feasibility.append(val_mean_feas)
-        val_objs.append(val_max_cost)
-
-
-        if (epoch+1) % 50 == 0:
-            print(f'Epoch [{epoch+1}/{num_epochs}], val mse: {val_mse.item():.4f}, val obj: {val_max_cost:.4f},  val eq cost = {val_eq_cost:.4f}, val ineq cost = {val_ineq_cost:.4f}, val feasibility score = {val_mean_feas:.4f}')
-            return compare_torch_jax(X_test, Y_test, bounds, opf_data)
-
-# Plot the loss curve
-    model.eval()
-    Y_pred = model(X_test)
-    #Y_pred = Y_test ###XXX Sanity check
-    test_loss = criterion(Y_pred, Y_test)
-    true_cost = get_objective_value(np.asarray(Y_test), opf_data)
-    feasibility_violation = assess_feasibility(np.asarray(X_test), Y_pred.detach().numpy(), opf_data)
-    test_obj = get_objective_value(Y_pred.detach().numpy(), opf_data)
-
-    obj_err = max(np.abs(true_cost - test_obj))
-
-    print(f'Test MSE: {test_loss.item():.4f}')
-    print(f'Test L_inf Objective Error: {obj_err:.4f}')
-    print(f'Test L_inf feasibility violation:{np.max(feasibility_violation):.4f}')
-    print(f'Test mean feasibility violation:{np.mean(feasibility_violation):.4f}')
-    plt.plot(losses,label = "train MSE")
-    plt.plot(val_losses, label = "validattion MSE")
-    plt.plot(val_feasibility, label = "val mean feasibility")
-    plt.plot(val_objs, label = "val max cost")
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.yscale('log')
-    plt.legend()
-    plt.title('Training Loss')
-#    plt.show()
-
-
-
-def get_logger(debug, warn, error): 
-    log = logging.getLogger('bnn-opf')
-    log.setLevel(logging.DEBUG)
-    
-    if (debug == True):
-        log.setLevel(logging.DEBUG)
-    if (error == True): 
-        log.setLevel(logging.ERROR)
-    if (warn == True):
-        log.setLevel(logging.WARNING)
-    
-    # create console handler
-    ch = logging.StreamHandler()
-    ch.setFormatter(CustomFormatter()) 
-    log.addHandler(ch)
-    
-    # create file handler
-    fh = logging.FileHandler(f'./logs/output.log', mode='w')
-    fh.setFormatter(CustomFormatter())
-    log.addHandler(fh) 
-    return log
-
-def compare_torch_jax(X,Y, bounds, opf_data, ord = np.inf):
-        in_eq_torch = inequality_constraint_violations_torch(Y, opf_data, bounds)
-        in_eq_jax = get_inequality_constraint_violations(Y.detach().numpy(), opf_data)
-        eq_jax =  get_equality_constraint_violations(X.detach().numpy(), Y.detach().numpy(), opf_data)
-        eq_torch =  equality_violations(X, Y, opf_data) 
-
-
-        print(f'torch inequality:{ vector_norm(in_eq_torch, ord=ord):10.3e}')
-        print(f'jax inequality:{ np.linalg.norm(in_eq_jax, ord=ord):10.3e}')
-        print(f'torch inequality np norm:{np.linalg.norm(in_eq_torch.numpy(), ord=ord):10.3e}')
-
-        print(f'torch equality:{ vector_norm(eq_torch, ord=ord):10.3e}')
-        print(f'jax equality:{ np.linalg.norm(eq_jax, ord=ord):10.3e}')
-        print(f'torch equality np norm:{np.linalg.norm(eq_torch.numpy(), ord=ord):10.3e}')
-        return Y , in_eq_jax
-       # print(vector_norm(Y - torch.tensor(Y.detach().numpy())).detach().numpy())
-        # print(bounds)
-        return 
-
-
-X = main()
-
-
+    for train_round  in range(num_rounds):
+        for epoch in range(num_epochs):
+            model_train_block(lambda_l1, "supervised")
+            scheduler.step()
+            losses.append(running_loss)
+            model_validate_block()
