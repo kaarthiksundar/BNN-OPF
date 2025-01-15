@@ -141,7 +141,7 @@ def main(
     Y_train = np.asarray(opf_data.Y_train)
     X_val = torch.tensor(np.asarray(opf_data.X_val))
     Y_val = torch.tensor(np.asarray(opf_data.Y_val))
-    #return X_val, Y_val, opf_data
+    #return np.linalg.norm(X_val.detach() - np.asarray(opf_data.X_val))
     X_test = torch.tensor(np.asarray(opf_data.X_test))
     Y_test = torch.tensor(np.asarray(opf_data.Y_test))
     dataset = TfData(X_train, Y_train)
@@ -149,7 +149,7 @@ def main(
     input_dim = X_train.shape[1]
     output_dim = Y_train.shape[1]
 
-    hidden_dim = roundup(1.2*output_dim)
+    hidden_dim = roundup(3*output_dim)
    # num_hidden = 4
     #hidden_dim = roundup(1.2*output_dim)
     num_hidden = 2
@@ -161,20 +161,22 @@ def main(
     scheduler = optim.lr_scheduler.PolynomialLR(optimizer, total_iters=num_epochs, power=1)
     lambda_l1 = 1E-4
     lambda_cost = 0.0
-    lambda_eq = 1E-3 ##NOTE This can be chosen after one step in primal-dual method
-    lambda_ineq = 1E-5
+    lambda_eq = 1E-2 ##NOTE This can be chosen after one step in primal-dual method
+    lambda_ineq = 1E-2
     pytorch_total_params = sum(p.numel() for p in model.parameters())
     summary(model,(input_dim,))
 
     costs = getcosts(opf_data)
-    bounds = convert_bounds_to_torch(opf_data) 
+    bounds = convert_bounds_to_torch(opf_data)
 
     losses = []
     val_losses = []
     val_feasibility = []
     val_objs = []
+
     for epoch in range(num_epochs):
         model.train()
+        #Traning block
         running_loss = 0.0
 
         for X_batch, Y_batch in trainloader:
@@ -199,13 +201,17 @@ def main(
 
         scheduler.step()
         losses.append(running_loss)
+        # Cross validation block
         model.eval()
-        Y_pred_val = model(X_val).detach()
+     #   Y_pred_val = model(X_val).detach() 
         Y_pred_val = Y_val ##XXX Sanity check
-        val_cost = opf_cost(Y_pred_val, opf_data, *costs)
-        val_eq_violations = equality_violations(X_val, Y_pred_val, opf_data)
-        val_ineq_violations = inequality_constraint_violations_torch(Y_pred_val, opf_data, bounds)
 
+
+        ##Metrics on the validation set
+        val_cost = opf_cost(Y_pred_val, opf_data, *costs)
+       # return Y_pred_val, opf_data, bounds
+        val_eq_violations = equality_violations(X_val, Y_pred_val, opf_data) ##XXX This gives non zero values even if exact Y is used
+        val_ineq_violations = inequality_constraint_violations_torch(Y_pred_val, opf_data, bounds)
         val_mse = criterion(Y_pred_val, Y_val)
         val_max_cost = torch.max(val_cost)
         val_eq_cost = vector_norm(val_eq_violations, ord=1)
@@ -219,12 +225,13 @@ def main(
 
 
         if (epoch+1) % 50 == 0:
-            print(f'Epoch [{epoch+1}/{num_epochs}], val mse: {val_mse.item():.4f}, val obj: {val_max_cost:.4f},  val eq cost = {val_eq_cost:.4f}, val ineq cost = {val_ineq_cost:.4f}')
+            print(f'Epoch [{epoch+1}/{num_epochs}], val mse: {val_mse.item():.4f}, val obj: {val_max_cost:.4f},  val eq cost = {val_eq_cost:.4f}, val ineq cost = {val_ineq_cost:.4f}, val feasibility score = {val_mean_feas:.4f}')
+           # compare_torch_jax(X_val, Y_pred_val, bounds, opf_data)
 
 # Plot the loss curve
     model.eval()
-    #Y_pred = model(X_test)
-    Y_pred = Y_test
+    Y_pred = model(X_test)
+    #Y_pred = Y_test ###XXX Sanity check
     test_loss = criterion(Y_pred, Y_test)
     true_cost = get_objective_value(np.asarray(Y_test), opf_data)
     feasibility_violation = assess_feasibility(np.asarray(X_test), Y_pred.detach().numpy(), opf_data)
@@ -271,7 +278,14 @@ def get_logger(debug, warn, error):
     log.addHandler(fh) 
     return log
 
+def compare_torch_jax(X,Y, bounds, opf_data):
+        in_eq_torch = inequality_constraint_violations_torch(Y, opf_data, bounds)
+        in_eq_jax = get_equality_constraint_violations(Y.detach().numpy(), opf_data)
+        print(f'torch inequality:{ vector_norm(in_eq_torch, ord=1):.8f}')
+        print(f'jax inequality:{ vector_norm(in_eq_jax, ord=1):.8f}')
+        return 
 
-main()
+
+X = main()
 
 
