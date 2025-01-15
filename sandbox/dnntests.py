@@ -210,7 +210,7 @@ def main(
         ##Metrics on the validation set
         val_cost = opf_cost(Y_pred_val, opf_data, *costs)
        # return Y_pred_val, opf_data, bounds
-        val_eq_violations = equality_violations(X_val, Y_pred_val, opf_data) ##XXX This gives non zero values even if exact Y is used
+        val_eq_violations = equality_violations(X_val, Y_pred_val, opf_data) ##XXX  This gives non zero values even if exact Y is used
         val_ineq_violations = inequality_constraint_violations_torch(Y_pred_val, opf_data, bounds)
         val_mse = criterion(Y_pred_val, Y_val)
         val_max_cost = torch.max(val_cost)
@@ -226,7 +226,7 @@ def main(
 
         if (epoch+1) % 50 == 0:
             print(f'Epoch [{epoch+1}/{num_epochs}], val mse: {val_mse.item():.4f}, val obj: {val_max_cost:.4f},  val eq cost = {val_eq_cost:.4f}, val ineq cost = {val_ineq_cost:.4f}, val feasibility score = {val_mean_feas:.4f}')
-            compare_torch_jax(X_val, Y_pred_val, bounds, opf_data)
+            return compare_torch_jax(X_test, Y_test, bounds, opf_data)
 
 # Plot the loss curve
     model.eval()
@@ -252,7 +252,7 @@ def main(
     plt.yscale('log')
     plt.legend()
     plt.title('Training Loss')
-    plt.show()
+#    plt.show()
 
 
 
@@ -278,16 +278,23 @@ def get_logger(debug, warn, error):
     log.addHandler(fh) 
     return log
 
-def compare_torch_jax(X,Y, bounds, opf_data):
+def compare_torch_jax(X,Y, bounds, opf_data, ord = np.inf):
         in_eq_torch = inequality_constraint_violations_torch(Y, opf_data, bounds)
         in_eq_jax = get_inequality_constraint_violations(Y.detach().numpy(), opf_data)
         eq_jax =  get_equality_constraint_violations(X.detach().numpy(), Y.detach().numpy(), opf_data)
         eq_torch =  equality_violations(X, Y, opf_data) 
 
-        print(f'torch inequality:{ vector_norm(in_eq_torch, ord=1):.8f}')
-        print(f'jax inequality:{ np.linalg.norm(in_eq_jax, ord=1):.8f}')
-        print(f'jax equality:{ np.linalg.norm(eq_jax, ord=1):.8f}')
-        print(f'torch equality:{ vector_norm(eq_torch, ord=1):.8f}')
+
+        print(f'torch inequality:{ vector_norm(in_eq_torch, ord=ord):.8f}')
+        print(f'jax inequality:{ np.linalg.norm(in_eq_jax, ord=ord):.8f}')
+        print(f'torch inequality np norm:{np.linalg.norm(in_eq_torch.numpy(), ord=ord):.8f}')
+
+        print(f'jax equality:{ np.linalg.norm(eq_jax, ord=ord):.8f}')
+        print(f'torch equality:{ vector_norm(eq_torch, ord=ord):.8f}')
+        print(f'torch equality np norm:{np.linalg.norm(eq_torch.numpy(), ord=ord):.8f}')
+        return Y , in_eq_jax
+       # print(vector_norm(Y - torch.tensor(Y.detach().numpy())).detach().numpy())
+        # print(bounds)
         return 
 
 
