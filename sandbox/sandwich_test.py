@@ -69,6 +69,7 @@ v = math.ceil(total*split[1])
 b = batch_size
 
 
+
 count = r + t + u + v
 sample_counts = SampleCounts(
     num_groups = g, 
@@ -93,45 +94,31 @@ input_dim = X_train.shape[1]
 output_dim = Y_train.shape[1]
 train_size = X_train.shape[0]
 
-hidden_dim = roundup(1.2*output_dim)
-num_hidden = 3
+hidden_dim = roundup(2*output_dim)
+num_hidden = 2
 layer_sizes =  [input_dim, *[hidden_dim]*num_hidden, output_dim ]
 LEARNING_RATE = 0.001
-NUM_EPOCHS = 300
+NUM_EPOCHS = 50
 penalty = {
     "l1": 1E-4,
-    "cost" : 1E-2,
-    "eq" : 1e10, ##NOTE This can be chosen after one step in primal-dual method,
-    "ineq" : 1E5
+    "cost" :0.0,
+    "eq" : 1, ##NOTE This can be chosen after one step in primal-dual method,
+    "ineq" : 1
 }
 PATIENCE = 5
 COOLDOWN = 0
 
-FACTOR = 0.5
+FACTOR = 0.3
 RTOL = 1e-5
-ACCUMULATION_SIZE = 10
+ACCUMULATION_SIZE = 1000
 
 losses = []
 val_losses = []
 val_feasibility = []
 val_objs = []
 
-
 params = init_network_params(layer_sizes, random.key(0))
-optimizer = optax.chain(
-    optax.adam(LEARNING_RATE),
-    optax.contrib.reduce_on_plateau(
-    patience=PATIENCE,
-    cooldown=COOLDOWN,
-    factor=FACTOR,
-    rtol=RTOL,
-    accumulation_size=ACCUMULATION_SIZE,
-    ),
-)
-
-opt_state = optimizer.init(params)
-
-@jit 
+#@jit 
 def l1_norm_params(params):
     wt =0.0
     for w,b in params:
@@ -140,12 +127,12 @@ def l1_norm_params(params):
     return  wt
 
 
-@jit
+#@jit
 def opf_loss_supervised(params,X,Y, l1_penalty):
     Y_pred = batched_nn_output(params, X)
     return jnp.mean(optax.l2_loss(Y_pred, Y)) + l1_penalty * l1_norm_params(params)
 
-@jit
+#@jit
 def opf_loss_unsupervised(params, X, penalty):
     Y = batched_nn_output(params, X)
     cost = jnp.mean(get_objective_value(Y,opf_data)**2)
@@ -153,7 +140,6 @@ def opf_loss_unsupervised(params, X, penalty):
     ineq_violations =  jnp.mean(get_inequality_constraint_violations(Y, opf_data)**2)
     return penalty["cost"]*cost + penalty["eq"]*eq_violations + penalty["ineq"]*ineq_violations + penalty["l1"]*l1_norm_params(params)
 
-@jit
 def opf_loss_semisupervised(params, X,Y, penalty, relative_penalty = 1.0):
     Y_pred = batched_nn_output(params, X)
     super_loss = jnp.mean(optax.l2_loss(Y_pred, Y)) + penalty["l1"] * l1_norm_params(params)
@@ -166,38 +152,65 @@ def opf_loss_semisupervised(params, X,Y, penalty, relative_penalty = 1.0):
     return sup_loss + relative_penalty*unsup_loss
 
 
-def train_step(params, opt_state, opf_data, X,Y, penalty):
+#@jit
+def train_step_supervised(params, opt_state, opf_data, X,Y, penalty):
+
     batch_loss, grads = value_and_grad(opf_loss_supervised)(params,X,Y, penalty["l1"])
     updates, opt_state = optimizer.update(grads, opt_state, params, value=batch_loss)
     params = optax.apply_updates(params, updates)
     return batch_loss, params, opt_state
 
+def train_step_unsupervised(params, opt_state, opf_data, X,Y, penalty):
+
+    batch_loss, grads = value_and_grad(opf_loss_unsupervised)(params,X,penalty)
+    updates, opt_state = optimizer.update(grads, opt_state, params, value=batch_loss)
+    params = optax.apply_updates(params, updates)
+    return batch_loss, params, opt_state
+
+
+
 batch_size = 128
+num_rounds = 7
+optimizer = optax.chain(
+        optax.adam(LEARNING_RATE),
+        optax.contrib.reduce_on_plateau(
+        patience=PATIENCE,
+        cooldown=COOLDOWN,
+        factor=FACTOR,
+        rtol=RTOL,
+        accumulation_size=ACCUMULATION_SIZE,
+        ),
+    )
+
+opt_state = optimizer.init(params)
 
 
-for epoch in range(NUM_EPOCHS):
 
-    loss = 0.0
-    for bind in range(0,train_size, batch_size):
-        X_batch = X_train[bind:bind+batch_size, :]
-        Y_batch = Y_train[bind:bind+batch_size, :]
-        batch_loss, params,opt_state = train_step(params, opt_state, opf_data, X_batch, Y_batch, penalty)
+for T  in range(2*num_rounds + 1):
+
+    for epoch in range(NUM_EPOCHS):
+        loss = 0.0
+        for bind in range(0,train_size, batch_size):
+            X_batch = X_train[bind:bind+batch_size, :]
+            Y_batch = Y_train[bind:bind+batch_size, :]
+            if T%2 == 0:
+                batch_loss, params,opt_state = train_step_supervised(params, opt_state, opf_data, X_batch, Y_batch, penalty)
+            else:
+                batch_loss, params,opt_state = train_step_unsupervised(params, opt_state, opf_data, X_batch, Y_batch, penalty)
+
+
         loss += batch_loss
-
-    Y_pred_val = batched_nn_output(params, X_val)
-    #Y_pred_val = Y_val
-    val_cost = jnp.max(get_objective_value(Y_pred_val, opf_data))
-    val_cost_true = get_objective_value(Y_val, opf_data)
-    cost_percent =  jnp.max((get_objective_value(Y_pred_val, opf_data) -  val_cost_true)/val_cost_true)*100
-    val_eq_cost = jnp.max(get_equality_constraint_violations(X_val,Y_pred_val, opf_data))
-    val_ineq_cost = jnp.max(get_inequality_constraint_violations(Y_pred_val, opf_data))
-
-
-    val_mse  = jnp.max(optax.l2_loss(Y_pred_val, Y_val))
-    if (epoch+1) % 10 == 0:
-            print(f'Epoch [{epoch+1}/{NUM_EPOCHS}], val mse: {val_mse.item():1.3e}, val obj percentage: {cost_percent:1.3e},  val eq cost = {val_eq_cost:1.3e}, val ineq cost = {val_ineq_cost:1.3e}')
+        Y_pred_val = batched_nn_output(params, X_val)
+        #Y_pred_val = Y_val
+        val_cost = jnp.max(get_objective_value(Y_pred_val, opf_data))
+        val_cost_true = get_objective_value(Y_val, opf_data)
+        cost_percent =  jnp.max((get_objective_value(Y_pred_val, opf_data) -  val_cost_true)/val_cost_true)*100
+        val_eq_cost = jnp.max(get_equality_constraint_violations(X_val,Y_pred_val, opf_data))
+        val_ineq_cost = jnp.max(get_inequality_constraint_violations(Y_pred_val, opf_data))
 
 
+        val_mse  = jnp.max(optax.l2_loss(Y_pred_val, Y_val))
+    print(f'ROUND: {T}, val mse: {val_mse.item():1.3e}, val obj percentage: {cost_percent:1.3e},  val eq cost = {val_eq_cost:1.3e}, val ineq cost = {val_ineq_cost:1.3e}')
 
 Y_pred_test = batched_nn_output(params, X_test)
 #Y_pred_test = Y_test
@@ -209,8 +222,6 @@ test_ineq_cost = jnp.max(get_inequality_constraint_violations(Y_pred_test, opf_d
 test_mse  = jnp.max(optax.l2_loss(Y_pred_test, Y_test))
 
 print(f' test mse: {test_mse.item():1.3e}, test obj percentage: {cost_percent:1.3e},  test eq cost = {test_eq_cost:1.3e}, test ineq cost = {test_ineq_cost:1.3e}')
-
-
 
 
 

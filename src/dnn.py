@@ -2,6 +2,7 @@
 import jax.numpy as jnp
 import numpy as np
 from jax import jit, grad, vmap, random, value_and_grad
+from jax.nn import relu
 import optax
 
 
@@ -22,7 +23,7 @@ def nn_output(params, xin):
   activations = xin
   for w, b in params[:-1]:
     outputs = jnp.dot(w, activations) + b
-    activations = jax.nn.relu(outputs)
+    activations = relu(outputs)
 
   final_w, final_b = params[-1]
   return jnp.dot(final_w,activations) + final_b

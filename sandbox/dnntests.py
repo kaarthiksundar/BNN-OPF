@@ -176,7 +176,6 @@ def main(
     for epoch in range(num_epochs):
         model.train()
         running_loss = 0.0
-
         for X_batch, Y_batch in trainloader:
             l1_regularization = 0.0
             for param in model.parameters():
