@@ -87,23 +87,32 @@ X_train = opf_data.X_train
 Y_train = opf_data.Y_train
 X_val = opf_data.X_val
 Y_val = opf_data.Y_val
+X_unsup = opf_data.X_unsupervised
 #return X_val, Y_val, opf_data
 X_test = opf_data.X_test
 Y_test = opf_data.Y_test
 input_dim = X_train.shape[1]
 output_dim = Y_train.shape[1]
 train_size = X_train.shape[0]
+ng = opf_data.get_num_gens()
+nbus = opf_data.get_num_buses()
 
 hidden_dim = roundup(2*output_dim)
 num_hidden = 2
-layer_sizes =  [input_dim, *[hidden_dim]*num_hidden, output_dim ]
+#layer_sizes =  [input_dim, *[hidden_dim]*num_hidden, output_dim ]
+layer_sizes = [[input_dim, *[hidden_dim]*num_hidden, ng],
+               [input_dim, *[hidden_dim]*num_hidden, ng],
+               [input_dim, *[hidden_dim]*num_hidden, nbus],
+               [input_dim, *[hidden_dim]*num_hidden, nbus]]
+
+
 LEARNING_RATE = 0.001
-NUM_EPOCHS = 50
+NUM_EPOCHS = 200
 penalty = {
     "l1": 1E-4,
     "cost" :0.0,
-    "eq" : 1, ##NOTE This can be chosen after one step in primal-dual method,
-    "ineq" : 1
+    "eq" : 1, 
+    "ineq" : 1E2
 }
 PATIENCE = 5
 COOLDOWN = 0
@@ -117,31 +126,33 @@ val_losses = []
 val_feasibility = []
 val_objs = []
 
-params = init_network_params(layer_sizes, random.key(0))
-#@jit 
+#params = init_network_params(layer_sizes, random.key(0))
+params = [init_network_params(layer_sizes[k], random.key(0)) for k in range(4)]
+@jit 
 def l1_norm_params(params):
     wt =0.0
-    for w,b in params:
-        wt += jnp.linalg.norm(w, ord=1)
-        wt += jnp.linalg.norm(b, ord=1)
+    for k in range(4):
+        for w,b in params[k]:
+            wt += jnp.linalg.norm(w, ord=1)
+            wt += jnp.linalg.norm(b, ord=1)
     return  wt
 
 
-#@jit
+@jit
 def opf_loss_supervised(params,X,Y, l1_penalty):
-    Y_pred = batched_nn_output(params, X)
+    Y_pred = batched_four_comp(params, X)
     return jnp.mean(optax.l2_loss(Y_pred, Y)) + l1_penalty * l1_norm_params(params)
 
-#@jit
+@jit
 def opf_loss_unsupervised(params, X, penalty):
-    Y = batched_nn_output(params, X)
+    Y = batched_four_comp(params, X)
     cost = jnp.mean(get_objective_value(Y,opf_data)**2)
     eq_violations =  jnp.mean(get_equality_constraint_violations(X,Y, opf_data)**2)
     ineq_violations =  jnp.mean(get_inequality_constraint_violations(Y, opf_data)**2)
     return penalty["cost"]*cost + penalty["eq"]*eq_violations + penalty["ineq"]*ineq_violations + penalty["l1"]*l1_norm_params(params)
 
 def opf_loss_semisupervised(params, X,Y, penalty, relative_penalty = 1.0):
-    Y_pred = batched_nn_output(params, X)
+    Y_pred = batched_four_comp(params, X)
     super_loss = jnp.mean(optax.l2_loss(Y_pred, Y)) + penalty["l1"] * l1_norm_params(params)
 
     cost = jnp.mean(get_objective_value(Y_pred,opf_data)**2)
@@ -160,7 +171,7 @@ def train_step_supervised(params, opt_state, opf_data, X,Y, penalty):
     params = optax.apply_updates(params, updates)
     return batch_loss, params, opt_state
 
-def train_step_unsupervised(params, opt_state, opf_data, X,Y, penalty):
+def train_step_unsupervised(params, opt_state, opf_data, X, penalty):
 
     batch_loss, grads = value_and_grad(opf_loss_unsupervised)(params,X,penalty)
     updates, opt_state = optimizer.update(grads, opt_state, params, value=batch_loss)
@@ -169,7 +180,7 @@ def train_step_unsupervised(params, opt_state, opf_data, X,Y, penalty):
 
 
 
-batch_size = 128
+batch_size = 512
 num_rounds = 7
 optimizer = optax.chain(
         optax.adam(LEARNING_RATE),
@@ -186,7 +197,7 @@ opt_state = optimizer.init(params)
 
 
 
-for T  in range(2*num_rounds + 1):
+for T  in range(2*num_rounds):
 
     for epoch in range(NUM_EPOCHS):
         loss = 0.0
@@ -196,11 +207,11 @@ for T  in range(2*num_rounds + 1):
             if T%2 == 0:
                 batch_loss, params,opt_state = train_step_supervised(params, opt_state, opf_data, X_batch, Y_batch, penalty)
             else:
-                batch_loss, params,opt_state = train_step_unsupervised(params, opt_state, opf_data, X_batch, Y_batch, penalty)
+                batch_loss, params,opt_state = train_step_unsupervised(params, opt_state, opf_data, X_unsup, penalty)
 
 
         loss += batch_loss
-        Y_pred_val = batched_nn_output(params, X_val)
+        Y_pred_val = batched_four_comp(params, X_val)
         #Y_pred_val = Y_val
         val_cost = jnp.max(get_objective_value(Y_pred_val, opf_data))
         val_cost_true = get_objective_value(Y_val, opf_data)
@@ -212,7 +223,7 @@ for T  in range(2*num_rounds + 1):
         val_mse  = jnp.max(optax.l2_loss(Y_pred_val, Y_val))
     print(f'ROUND: {T}, val mse: {val_mse.item():1.3e}, val obj percentage: {cost_percent:1.3e},  val eq cost = {val_eq_cost:1.3e}, val ineq cost = {val_ineq_cost:1.3e}')
 
-Y_pred_test = batched_nn_output(params, X_test)
+Y_pred_test = batched_four_comp(params, X_test)
 #Y_pred_test = Y_test
 test_cost = jnp.max(get_objective_value(Y_pred_test, opf_data))
 test_cost_true = get_objective_value(Y_test, opf_data)

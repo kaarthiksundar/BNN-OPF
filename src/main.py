@@ -55,7 +55,8 @@ def main(
     
     # cli-arg validation
     loaded_cases = ['pglib_opf_case30_ieee', 'pglib_opf_case57_ieee',
-                    'pglib_opf_case118_ieee', 'pglib_opf_case500_goc']
+                    'pglib_opf_case118_ieee', 'pglib_opf_case500_goc',
+                    'pglib_opf_case2000_goc']
     if case not in loaded_cases:
         log.error(f'{case} can be only lie in {loaded_cases}')
         return 
@@ -192,7 +193,7 @@ def get_logger(debug, warn, error):
     ch = logging.StreamHandler()
     ch.setFormatter(CustomFormatter()) 
     log.addHandler(ch)
-    
+
     # create file handler
     fh = logging.FileHandler(f'./logs/output.log', mode='w')
     fh.setFormatter(CustomFormatter())
