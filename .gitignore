@@ -32,3 +32,4 @@ scripts/*
 !*.gitkeep
 requirements.txt
 *.swp
+.DS_Store

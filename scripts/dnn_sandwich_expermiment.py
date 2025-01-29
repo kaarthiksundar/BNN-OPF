@@ -1,0 +1,272 @@
+import sys
+sys.path.append('src')
+import typer
+from typing_extensions import Annotated
+from logger import CustomFormatter
+from pathlib import Path
+import logging
+import json
+import math
+import numpy as np
+import matplotlib.pyplot as plt
+from dataloader import load_data
+from acopf import *
+from bnncommon import *
+from dnn import *
+from supervisedmodel import *
+from stopping import *
+from sandwiched import run_sandwich
+from classes import SampleCounts
+from jax import random
+from modelio import *
+import time
+
+
+def roundup(x):
+    return int(math.ceil(x / 100.0)) * 100
+
+
+
+def get_logger(debug, warn, error): 
+    log = logging.getLogger('bnn-opf')
+    log.setLevel(logging.DEBUG)
+
+    if (debug == True):
+        log.setLevel(logging.DEBUG)
+    if (error == True):
+        log.setLevel(logging.ERROR)
+    if (warn == True):
+        log.setLevel(logging.WARNING)
+
+    # create console handler
+    ch = logging.StreamHandler()
+    ch.setFormatter(CustomFormatter())
+    log.addHandler(ch)
+
+    # create file handler
+    fh = logging.FileHandler(f'./logs/output.log', mode='w')
+    fh.setFormatter(CustomFormatter())
+    log.addHandler(fh)
+    return log
+
+
+
+
+data_path= './data/'
+#data_list = [ 'pglib_opf_case2000_goc', 'pglib_opf_case500_goc', 'pglib_opf_case57_ieee', 'pglib_opf_case118_ieee']
+data_list = ['pglib_opf_case2000_goc' ]
+config_file= 'config.json'
+num_groups = 1
+num_train_per_group= 512
+num_test_per_group  = 1000
+max_time = 600
+max_round_time = 100
+
+
+for case in data_list:
+    log = get_logger(False, False, False)
+    data = json.load(open(data_path + config_file))
+    batch_size = data["batch_size"]
+
+    split = (0.80, 0.20)
+    g = num_groups
+    r = num_train_per_group
+    total = math.ceil(r/split[0])
+    u = int(r*4.0)
+    t = num_test_per_group
+    v = math.ceil(total*split[1])
+    b = batch_size
+    count = r + t + u + v
+    sample_counts = SampleCounts(
+        num_groups = g, 
+        num_train_per_group = r, 
+        num_test_per_group = t, 
+        num_unsupervised_per_group = u, 
+        num_validation_per_group = v,
+        batch_size = batch_size)
+    opf_data = load_data(data_path, case, log, sample_counts)
+    
+    rng_key = random.PRNGKey(0)
+    X_train = opf_data.X_train
+    Y_train = opf_data.Y_train
+    X_val = opf_data.X_val
+    Y_val = opf_data.Y_val
+    X_unsup = opf_data.X_unsupervised
+    #return X_val, Y_val, opf_data
+    X_test = opf_data.X_test
+    Y_test = opf_data.Y_test
+    input_dim = X_train.shape[1]
+    output_dim = Y_train.shape[1]
+    train_size = X_train.shape[0]
+    ng = opf_data.get_num_gens()
+    nbus = opf_data.get_num_buses()
+
+    hidden_dim = roundup(2*output_dim)
+    num_hidden = 2
+    layer_sizes = [[input_dim, *[hidden_dim]*num_hidden, ng],
+               [input_dim, *[hidden_dim]*num_hidden, ng],
+               [input_dim, *[hidden_dim]*num_hidden, nbus],
+               [input_dim, *[hidden_dim]*num_hidden, nbus]]
+
+    params = [init_network_params(layer_sizes[k], random.key(0)) for k in range(4)]
+
+    LEARNING_RATE = 0.001
+    NUM_EPOCHS = 200
+    penalty = {
+        "l1": 1E-6,
+        "cost" :0,
+        "eq" : 1, 
+        "ineq" : 1E1
+    }
+    PATIENCE = 5
+    COOLDOWN = 0
+
+    FACTOR = 0.5
+    RTOL = 1e-5
+    ACCUMULATION_SIZE = 100
+
+    losses = []
+    val_losses = []
+    val_feasibility = []
+    val_objs = []
+    
+
+
+    @jit
+    def opf_loss_supervised(params,X,Y, l1_penalty):
+        Y_pred = batched_four_comp_nn(params, X)
+        return jnp.mean(optax.l2_loss(Y_pred, Y)) + l1_penalty * l1_norm_params(params)
+
+    @jit
+    def opf_loss_unsupervised(params, X, penalty):
+        Y = batched_four_comp_nn(params, X)
+        cost = jnp.mean(get_objective_value(Y,opf_data)**2)
+        eq_violations =  jnp.mean(get_equality_constraint_violations(X,Y, opf_data)**2)
+        ineq_violations =  jnp.mean(get_inequality_constraint_violations(Y, opf_data)**2)
+        return penalty["cost"]*cost + penalty["eq"]*eq_violations + penalty["ineq"]*ineq_violations + penalty["l1"]*l1_norm_params(params)
+
+
+    def train_step_supervised(params, opt_state, opf_data, X,Y, penalty):
+
+        batch_loss, grads = value_and_grad(opf_loss_supervised)(params,X,Y, penalty["l1"])
+        updates, opt_state = optimizer.update(grads, opt_state, params, value=batch_loss)
+        params = optax.apply_updates(params, updates)
+        return batch_loss, params, opt_state
+
+    def train_step_unsupervised(params, opt_state, opf_data, X, penalty):
+
+        batch_loss, grads = value_and_grad(opf_loss_unsupervised)(params,X,penalty)
+        updates, opt_state = optimizer.update(grads, opt_state, params, value=batch_loss)
+        params = optax.apply_updates(params, updates)
+        return batch_loss, params, opt_state
+
+
+
+
+
+
+
+
+
+    batch_size = 512
+    num_rounds = 25
+    optimizer = optax.chain(
+            optax.adam(LEARNING_RATE),
+            optax.contrib.reduce_on_plateau(
+            patience=PATIENCE,
+            cooldown=COOLDOWN,
+            factor=FACTOR,
+            rtol=RTOL,
+            accumulation_size=ACCUMULATION_SIZE,
+            ),
+        )
+
+    opt_state = optimizer.init(params)
+
+
+    start_time = time.time()
+    time_list = []
+    loss_list = []
+    transition_times = []
+    unsup_stopper = PatienceThresholdStoppingCriteria(log, threshold=1e-10, patience=10)
+    sup_stopper = PatienceThresholdStoppingCriteria(log, patience=10)
+    for T  in range(2*num_rounds):
+        round_start_time = time.time()
+        for epoch in range(NUM_EPOCHS):
+            loss = 0.0
+
+            if T%2 == 0:
+                stopper = sup_stopper
+                for bind in range(0,train_size, batch_size):
+                    X_batch = X_train[bind:bind+batch_size, :]
+                    Y_batch = Y_train[bind:bind+batch_size, :]
+                    batch_loss, params,opt_state = train_step_supervised(params, opt_state, opf_data, X_batch, Y_batch, penalty)
+                    loss += batch_loss
+            else:
+                stopper = unsup_stopper
+                for bind in range(0,4*train_size, 4*batch_size):
+                    batch_loss, params,opt_state = train_step_unsupervised(params, opt_state, opf_data, X_unsup[bind:bind+4*batch_size,:], penalty)
+                    loss += batch_loss
+
+
+
+            Y_pred_val = batched_four_comp_nn(params, X_val)
+            val_cost = jnp.max(get_objective_value(Y_pred_val, opf_data))
+            val_cost_true = get_objective_value(Y_val, opf_data)
+            cost_percent =  jnp.max((get_objective_value(Y_pred_val, opf_data) -  val_cost_true)/val_cost_true)*100
+            val_eq_cost = jnp.max(jnp.abs(get_equality_constraint_violations(X_val,Y_pred_val, opf_data)))
+            val_ineq_cost = jnp.max(jnp.abs(get_inequality_constraint_violations(Y_pred_val, opf_data)))
+
+
+            val_mse  = jnp.max(optax.l2_loss(Y_pred_val, Y_val))
+            time_list.append(time.time() -start_time)
+            loss_list.append((cost_percent, val_eq_cost))
+
+            stopper.on_epoch_end(epoch, loss, params)
+            if stopper.stop_training == True:
+                stopper.reset_wait()
+                stopper.best_loss = jnp.inf
+                break
+            if time.time() > round_start_time + max_round_time:
+                break
+
+
+        params = stopper.vi_parameters
+        if time.time() > start_time + max_time:
+            break
+        transition_times.append(time.time() - start_time)
+        print(f'ROUND: {T}, val mse: {val_mse.item():1.3e}, val obj percentage: {cost_percent:1.3e},  val eq cost = {val_eq_cost:1.3e}, val ineq cost = {val_ineq_cost:1.3e}')
+
+    Y_pred_test = batched_four_comp_nn(params, X_test)
+    #Y_pred_test = Y_test
+    test_cost = jnp.max(get_objective_value(Y_pred_test, opf_data))
+    test_cost_true = get_objective_value(Y_test, opf_data)
+    cost_percent =  jnp.max((get_objective_value(Y_pred_test, opf_data) -  test_cost_true)/test_cost_true)*100
+    test_eq_cost = jnp.max(jnp.abs(get_equality_constraint_violations(X_test,Y_pred_test, opf_data)))
+    test_ineq_cost = jnp.max(jnp.abs(get_inequality_constraint_violations(Y_pred_test, opf_data)))
+    test_mse  = jnp.max(optax.l2_loss(Y_pred_test, Y_test))
+
+    test_mean_eq =  jnp.mean(jnp.abs(get_equality_constraint_violations(X_test,Y_pred_test, opf_data)))
+    test_mean_ineq = jnp.mean(jnp.abs(get_inequality_constraint_violations(Y_pred_test, opf_data)))
+
+    print(f' test mse: {test_mse.item():1.3e}, test obj percentage: {cost_percent:1.3e},  test eq cost = {test_eq_cost:1.3e}, test ineq cost = {test_ineq_cost:1.3e}')
+    print(f' mean equality: {test_mean_eq.item():1.3e}, mean inequality: {test_mean_ineq.item():1.3e}')
+    loss_array = np.array(loss_list)
+    fig, ax = plt.subplots(2,1, sharex=True)
+    ax[1].plot(time_list, loss_array[:,1], label = "eq_violation" )
+    ax[1].set_yscale('log')
+    ax[1].legend()
+    plt.grid(True)
+    ax[0].plot(time_list, np.abs(loss_array[:,0]), label = "cost percentage" )
+    ax[0].set_yscale('log')
+    ax[0].legend()
+    for tt in transition_times:
+        plt.axvline(x = tt, color='red')
+    plt.grid(True)
+   # print()
+    plt.show()
+
+
+
+
+
