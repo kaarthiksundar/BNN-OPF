@@ -38,7 +38,7 @@ filename = 'random_nonconvex_dataset_var100_ineq50_eq50_ex10000.npz'
 #filename = 'random_nonconvex_dataset_var150_ineq50_eq50_ex5000.npz'
 data = np.load(filename, allow_pickle=False)
 G, Q, A, h, p, X, Y = (data[k] for k in ('G','Q','A','h','p','X','Y'))
-N_train_val = 10000
+N_train_val = 1400
 X = X[:N_train_val,:]
 Y = Y[:N_train_val,:]
 
@@ -130,6 +130,8 @@ print('\nGround‑truth (validation targets)')
 print(f'  max ‖Ay−x‖₂   : {jnp.linalg.norm(r_eq_true, axis=1).max():.3E}')
 print(f'  max max(0,Gy−h): {r_ineq_true.max(1).max():.3E}')
 print(f'  min objective  : {obj_true.min()}')
+
+print(f'MSE :{jnp.linalg.norm(Y_val - Y_pred, axis = 1).max()/ jnp.linalg.norm(Y_val, axis = 1).max()}')
 
 # ───────────────────────────── SAVE LOG (optional) ───────────────────────
 if input('\nSave training log to "train_log_unsup.npy"? [y/N] → ').lower().startswith('y'):

@@ -1,9 +1,12 @@
 from dc3classes import ProblemData
+from dc3feasibility import *
 from typing import Dict
 import numpyro.distributions as dist
 import jax.numpy as jnp
+import jax
 from collections import OrderedDict
 from typing import Any, Dict 
+from numpyro.infer import Predictive
 
 def get_model_params(problem_data: ProblemData) -> Dict[str, Any]:
     """Return a dictionary of hyper‑parameters that fully specifies the
@@ -77,3 +80,60 @@ def get_minibatches_supervised(X, Y, Z, batch_size):
     N = X.shape[0]
     for i in range(0, N, batch_size):
         yield X[i:i+batch_size], Y[i:i+batch_size], Z[i:i+batch_size]
+
+def validate_model(key,
+                   X_val_norm,X_val,Y_val,
+                   problem, params, model_fn, guide_fn):
+    key, subkey = jax.random.split(key)
+    # helper handles argument order expected by the model
+    predictive = Predictive(
+        model= model_fn,
+        guide=guide_fn,
+        params=params,              # overrides sample sites with MAP/VI params
+        num_samples=500,
+        return_sites=["Y_y"],
+    )
+
+    samples = predictive(
+        subkey,
+        X_val_norm,                     # X_norm
+        X_val,                          # X_raw
+        Y=None,                         # no ground‑truth
+        problem_data=problem,
+        vi_parameters=params,      # passed so model has access if needed
+    )
+
+    Y_pred_norm = samples["Y_y"].mean(axis=0)
+    Y_pred      = Y_pred_norm * problem.Y_std + problem.Y_mean
+
+    # ────────────────────────────── 7.  diagnostics ───────────────────────────
+    # equality:  Ay - x
+    r_eq   = equality_residuals(jnp.array(X_val), Y_pred, problem)
+    # inequality:  max(0, Gy - h)
+    r_ineq = inequality_residuals(jnp.array(X_val), Y_pred, problem)
+
+    # objective  ½ yᵀQy + pᵀ sin(y)
+    obj = 0.5 * jnp.sum(Y_pred * (problem.Q @ Y_pred.T).T, axis=1) + jnp.sum(problem.p * jnp.sin(Y_pred), axis=1)
+
+    print("Validation summary:")
+    print("  max ‖Ay−x‖₂ :", jnp.linalg.norm(r_eq, axis=1).max())
+    print("  max max(0, Gy−h) :", r_ineq.max(1).max())
+    print("  min objective     :", obj.min())
+
+    # ─────────────────── TRUE VALUES ON VALIDATION SET ────────────────────
+    r_eq_true   = equality_residuals(problem.X_val, problem.Y_val, problem)
+    r_ineq_true = inequality_residuals(problem.X_val, problem.Y_val, problem)
+    obj_true    = (
+        0.5 * jnp.sum(problem.Y_val * (problem.Q @ problem.Y_val.T).T, axis=1)
+        + jnp.sum(problem.p * jnp.sin(problem.Y_val), axis=1)
+    )
+
+    print('\nGround‑truth (validation targets)')
+    print('  max ‖Ay−x‖₂   :', jnp.linalg.norm(r_eq_true, axis=1).max())
+    print('  max max(0,Gy−h):', r_ineq_true.max(1).max())
+    print('  min objective  :', obj_true.min())
+
+    print(f'MSE :{jnp.linalg.norm(Y_val - Y_pred, axis = 1).max()/ jnp.linalg.norm(Y_val, axis = 1).max()}')
+
+
+
