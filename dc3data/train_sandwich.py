@@ -132,8 +132,8 @@ sandwiched_early_stopper = PatienceThresholdStoppingCriteria(
     log, patience = 3
 )
 
-max_time_supervised = 0.1 * max_training_time_per_round 
-max_time_unsupervised = 0.9 * max_training_time_per_round
+max_time_supervised = 0.4 * max_training_time_per_round 
+max_time_unsupervised = 0.6 * max_training_time_per_round
 supervised_params = []
 unsupervised_params = []
 vi_parameters = None 
@@ -151,7 +151,7 @@ for round in range(sandwich_rounds):
             initial_learning_rate = initial_learning_rate/(round + 1), 
             decay_rate = decay_rate/(round + 1), 
             max_training_time = min(remaining_time, max_time_supervised), 
-            max_epochs =30, 
+            max_epochs =2000, 
             validate_every = early_stopping_trigger_supervised, 
             vi_parameters = vi_parameters, 
             stop_check = supervised_early_stopper, 

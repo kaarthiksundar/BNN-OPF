@@ -320,7 +320,7 @@ def predict_supervised(
         guide=supervised_guide,               # noqa: F821
         params=vi_parameters,
         num_samples=num_samples,
-        return_sites=("Y_y",)                
+        return_sites=("Y_y",)
     )
 
     samples = predictive(
