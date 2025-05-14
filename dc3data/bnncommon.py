@@ -114,11 +114,12 @@ def validate_model(key,
 
     # objective  ½ yᵀQy + pᵀ sin(y)
     obj = 0.5 * jnp.sum(Y_pred * (problem.Q @ Y_pred.T).T, axis=1) + jnp.sum(problem.p * jnp.sin(Y_pred), axis=1)
+    max_eq = jnp.linalg.norm(r_eq, axis=1).max()
+    max_ineq = r_ineq.max(1).max()
 
     print("Validation summary:")
-    print("  max ‖Ay−x‖₂ :", jnp.linalg.norm(r_eq, axis=1).max())
-    print("  max max(0, Gy−h) :", r_ineq.max(1).max())
-    print("  min objective     :", obj.min())
+    print("  max ‖Ay−x‖₂ :", max_eq)
+    print("  max max(0, Gy−h) :", max_ineq)
 
     # ─────────────────── TRUE VALUES ON VALIDATION SET ────────────────────
     r_eq_true   = equality_residuals(problem.X_val, problem.Y_val, problem)
@@ -127,13 +128,15 @@ def validate_model(key,
         0.5 * jnp.sum(problem.Y_val * (problem.Q @ problem.Y_val.T).T, axis=1)
         + jnp.sum(problem.p * jnp.sin(problem.Y_val), axis=1)
     )
-
+    obj_gap = jnp.abs(obj_true - obj).mean()
     print('\nGround‑truth (validation targets)')
     print('  max ‖Ay−x‖₂   :', jnp.linalg.norm(r_eq_true, axis=1).max())
     print('  max max(0,Gy−h):', r_ineq_true.max(1).max())
-    print('  min objective  :', obj_true.min())
+    print(' objective  gap :', obj_gap)
+    print(' true obj mean:', jnp.abs(obj_true).max())
 
-    print(f'MSE :{jnp.linalg.norm(Y_val - Y_pred, axis = 1).max()/ jnp.linalg.norm(Y_val, axis = 1).max()}')
+    print(f'MSE :{jnp.linalg.norm(Y_val - Y_pred, axis = 1).mean()/ jnp.linalg.norm(Y_val, axis = 1).max()}')
+    return max_eq, max_ineq, obj_gap
 
 
 

@@ -27,6 +27,7 @@ import dc3supervisedmodel as sm
 from dc3classes import ProblemData
 from dc3feasibility import equality_residuals, inequality_residuals
 from stopping import PatienceThresholdStoppingCriteria
+from bnncommon import validate_model
 
 # ─────────────────────────────── RNG KEY ────────────────────────────────
 key = jax.random.PRNGKey(0)
@@ -38,7 +39,7 @@ filename = 'random_nonconvex_dataset_var100_ineq50_eq50_ex10000.npz'
 #filename = 'random_nonconvex_dataset_var150_ineq50_eq50_ex5000.npz'
 data = np.load(filename, allow_pickle=False)
 G, Q, A, h, p, X, Y = (data[k] for k in ('G','Q','A','h','p','X','Y'))
-N_train_val = 1400
+N_train_val = 5000
 X = X[:N_train_val,:]
 Y = Y[:N_train_val,:]
 
@@ -97,43 +98,8 @@ log.info('  training finished')
 
 best_params = stop_check.vi_parameters
 
-# ───────────────────────────── PREDICTION ────────────────────────────────
-key, subkey = jax.random.split(key)
-
-Y_pred, Y_pred_std = um.predict_unsupervised(
-    rng_key=subkey,
-    params=best_params,
-    X_norm=jnp.array(X_val_norm),
-    X_raw=jnp.array(X_val),
-    problem_data=problem,
-    num_samples=500,
-)
-
-# ───────────────────────────── DIAGNOSTICS ───────────────────────────────
-r_eq   = equality_residuals(problem.X_val, Y_pred, problem)
-r_ineq = inequality_residuals(problem.X_val, Y_pred, problem)
-obj    = 0.5 * jnp.sum(Y_pred * (problem.Q @ Y_pred.T).T, axis=1) + \
-         jnp.sum(problem.p * jnp.sin(Y_pred), axis=1)
-
-print('\nValidation summary (unsupervised)')
-print(f'  max ‖Ay−x‖₂   : {jnp.linalg.norm(r_eq, axis=1).max():.3E}')
-print(f'  max max(0,Gy−h): {r_ineq.max(1).max():.3E}')
-print(f'  min objective  : {obj.min()}')
-
-# ─────────────────────── TRUE VALUES ON VALIDATION SET ───────────────────
-r_eq_true   = equality_residuals(problem.X_val, problem.Y_val, problem)
-r_ineq_true = inequality_residuals(problem.X_val, problem.Y_val, problem)
-obj_true    = 0.5 * jnp.sum(problem.Y_val * (problem.Q @ problem.Y_val.T).T, axis=1) + \
-             jnp.sum(problem.p * jnp.sin(problem.Y_val), axis=1)
-
-print('\nGround‑truth (validation targets)')
-print(f'  max ‖Ay−x‖₂   : {jnp.linalg.norm(r_eq_true, axis=1).max():.3E}')
-print(f'  max max(0,Gy−h): {r_ineq_true.max(1).max():.3E}')
-print(f'  min objective  : {obj_true.min()}')
-
-print(f'MSE :{jnp.linalg.norm(Y_val - Y_pred, axis = 1).max()/ jnp.linalg.norm(Y_val, axis = 1).max()}')
-
-# ───────────────────────────── SAVE LOG (optional) ───────────────────────
-if input('\nSave training log to "train_log_unsup.npy"? [y/N] → ').lower().startswith('y'):
-    np.save('train_log_unsup.npy', stop_check.history)
-    print('log saved.')
+validate_model(key,
+                   X_val_norm, X_val, Y_val,
+                   problem, best_params,
+                   sm.supervised_testing_model,
+                   sm.supervised_guide)

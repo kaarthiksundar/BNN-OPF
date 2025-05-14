@@ -12,9 +12,9 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 torch.set_default_dtype(torch.float64)
 
-num_var = 20
-num_ineq = 5
-num_eq = 10
+num_var = 70
+num_ineq = 50
+num_eq = 20
 num_examples = 5000
 
 np.random.seed(17)

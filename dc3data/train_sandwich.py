@@ -19,9 +19,14 @@ import jax.random as random
 from pathlib import Path
 
 import jax
+import json
 import jax.numpy as jnp
 import numpy as np
 from sklearn.model_selection import train_test_split
+import os
+import io
+import csv
+from contextlib import redirect_stdout
 
 import dc3unsupervisedmodel as um            # model, guide, training loop & predict helper
 import dc3supervisedmodel as sm
@@ -30,15 +35,24 @@ from dc3feasibility import equality_residuals, inequality_residuals
 from stopping import PatienceThresholdStoppingCriteria
 from bnncommon import *
 import time
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--data', type=str)
+parser.add_argument('--seed', type=int)
+args = parser.parse_args()
+
+
 
 # ─────────────────────────────── RNG KEY ────────────────────────────────
-key = jax.random.PRNGKey(0)
+key = jax.random.PRNGKey(args.seed)
 
 # ────────────────────────────── LOAD DATA ───────────────────────────────
 # Suppose X.shape == (N, m)   and   Y.shape == (N, n)
 #filename = "random_nonconvex_dataset_var20_ineq5_eq10_ex5000.npz"
-filename = 'random_nonconvex_dataset_var100_ineq50_eq50_ex10000.npz'
+#filename = 'random_nonconvex_dataset_var100_ineq50_eq50_ex10000.npz'
 #filename = 'random_nonconvex_dataset_var150_ineq50_eq50_ex5000.npz'
+filename = args.data
 data = np.load(filename, allow_pickle=False)
 G, Q, A, h, p, X, Y = (data[k] for k in ('G','Q','A','h','p','X','Y'))
 
@@ -87,7 +101,7 @@ problem_unsup = ProblemData(
     Y_std=jnp.array(Y_std),
     batch_size=256,
 )
-problem_unsup.init_meta(hidden_width=240, num_hidden_layers=1)
+problem_unsup.init_meta(hidden_width=120, num_hidden_layers=1)
 problem = ProblemData(
     Q=jnp.array(Q), A=jnp.array(A), G=jnp.array(G), p=jnp.array(p), h=jnp.array(h),
     X_train_norm=jnp.array(X_sup_norm),
@@ -103,25 +117,34 @@ problem = ProblemData(
 )
 
 
-problem.init_meta(hidden_width=240, num_hidden_layers=1)
-config = {}
+problem.init_meta(hidden_width=120, num_hidden_layers=1)
+
+config_file = 'expts/configs/config_temp70.json'
+
+with open(config_file, "r") as f:
+    config = json.load(f)
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s',
                     datefmt='%H:%M:%S')
 log = logging.getLogger('dc3-sandwich-train')
 
+if filename == 'random_nonconvex_dataset_var20_ineq5_eq10_ex5000.npz':
+    T =400
+else:
+    T =800
 
 
-initial_learning_rate = config.get("initial_learning_rate", 1e-3)
+initial_learning_rate = config.get("initial_learning_rate", 1e-2)
 decay_rate = config.get("decay_rate", 1e-4) 
 sandwich_rounds = config.get("sandwich_rounds", 10) 
 max_training_time_per_round = config.get("max_training_time_per_round", 200.0)
-max_training_time = config.get("max_training_time", 1000.0)
-max_epochs = config.get("max_epochs", 2000) 
+max_training_time = T #config.get("max_training_time", T)
+max_epochs = config.get("max_epochs", 200) 
 early_stopping_trigger_supervised = config.get("early_stopping_trigger_supervised", 25) 
 early_stopping_trigger_unsupervised = config.get("early_stopping_trigger_unsupervised", 30)
-patience_supervised = config.get("patience_supervised", 3)
+patience_supervised = config.get("patience_supervised", 5)
 patience_unsupervised = config.get("patience_unsupervised", 5)
+lr_supression_factor = config.get("lr_supression", 0.1)
 
 # create early stopping for both the supervised and unsupervised runs
 supervised_early_stopper = PatienceThresholdStoppingCriteria(
@@ -132,15 +155,15 @@ sandwiched_early_stopper = PatienceThresholdStoppingCriteria(
     log, patience = 3
 )
 
-max_time_supervised = 0.4 * max_training_time_per_round 
-max_time_unsupervised = 0.6 * max_training_time_per_round
+max_time_supervised = 0.7 * max_training_time_per_round 
+max_time_unsupervised = 0.3 * max_training_time_per_round
 supervised_params = []
 unsupervised_params = []
 vi_parameters = None 
 model_params = get_model_params(problem)
 remaining_time = max_training_time
 start_time = time.time() 
-rng_key = random.PRNGKey(0)
+rng_key = random.PRNGKey(args.seed)
  
 
 for round in range(sandwich_rounds): 
@@ -151,7 +174,7 @@ for round in range(sandwich_rounds):
             initial_learning_rate = initial_learning_rate/(round + 1), 
             decay_rate = decay_rate/(round + 1), 
             max_training_time = min(remaining_time, max_time_supervised), 
-            max_epochs =2000, 
+            max_epochs =max_epochs, 
             validate_every = early_stopping_trigger_supervised, 
             vi_parameters = vi_parameters, 
             stop_check = supervised_early_stopper, 
@@ -180,7 +203,7 @@ for round in range(sandwich_rounds):
     um.run_unsupervised(
         problem_data=problem_unsup,
         log=log,
-        initial_learning_rate = initial_learning_rate/(round + 1),
+        initial_learning_rate = lr_supression_factor*initial_learning_rate/(round + 1),
         decay_rate = decay_rate/(round + 1), 
         max_training_time = min(remaining_time, max_time_unsupervised), 
         max_epochs = max_epochs, 
@@ -200,12 +223,27 @@ for round in range(sandwich_rounds):
         vi_parameters[std_key] = supervised_params[-1][std_key]
     unsupervised_params.append(vi_parameters)
     unsupervised_early_stopper.reset_wait()
- 
-    validate_model(key,
+
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        validate_model(key,
                    X_val_norm, X_val, Y_val,
                    problem, vi_parameters,
                    sm.supervised_testing_model,
                    sm.supervised_guide)
+        raw_output = buffer.getvalue()  # Keep output exactly as it is
+
+# Define output CSV file
+    csv_filename = f"sandwich_raw_results.csv"
+    file_exists = os.path.isfile(csv_filename)
+
+# Write raw output to CSV with filename and seed
+    with open(csv_filename, mode='a', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(['filename', 'seed', 'output'])  # header
+        writer.writerow([args.data, args.seed, raw_output])
+ 
         
         # check overall time
     elapsed = time.time() - start_time

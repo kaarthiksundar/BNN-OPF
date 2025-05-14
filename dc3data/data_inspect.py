@@ -15,7 +15,8 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 #filename = 'random_nonconvex_dataset_var100_ineq50_eq50_ex10000'
 #filename = 'random_nonconvex_dataset_var150_ineq50_eq50_ex5000'
-filename = "random_nonconvex_dataset_var20_ineq5_eq10_ex5000"
+#filename = "random_nonconvex_dataset_var20_ineq5_eq10_ex5000"
+filename = 'random_nonconvex_dataset_var70_ineq50_eq20_ex5000'
 with open(filename, 'rb') as file:
     data = pickle.load(file)
 

@@ -1,0 +1,15 @@
+{
+    "initial_learning_rate": 0.0005,
+    "decay_rate": 0.0005,
+    "sandwich_rounds": 4,
+    "max_training_time_per_round": 100.0,
+    "max_training_time": 400.0,
+    "max_epochs": 200,
+    "early_stopping_trigger_supervised": 25,
+    "early_stopping_trigger_unsupervised": 30,
+    "patience_supervised": 5,
+    "patience_unsupervised": 5,
+    "lr_supression": 0.5,
+    "width": 40,
+    "num_layers": 1
+}

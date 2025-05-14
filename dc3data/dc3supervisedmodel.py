@@ -251,12 +251,6 @@ def run_supervised(
                 problem_data = problem_data, 
                 vi_parameters = vi_parameters
             )
-            # validation_loss = run_validation_supervised(
-            #     problem_data, 
-            #     rng_key, 
-            #     vi_parameters,
-            #     log
-            # )
             log.debug(f'validation loss {validation_loss}')
             stop_check.on_epoch_end(epoch, validation_loss, vi_parameters)
         if stop_check.stop_training == True: 

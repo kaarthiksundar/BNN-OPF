@@ -1,0 +1,55 @@
+random_nonconvex_dataset_var70_ineq50_eq20_ex5000.npz,0,"Validation summary:
+  max ‖Ay−x‖₂ : 0.3211618
+  max max(0, Gy−h) : 0.18555665
+
+Ground‑truth (validation targets)
+  max ‖Ay−x‖₂   : 3.5238902e-06
+  max max(0,Gy−h): 2.1457672e-06
+ objective  gap : 0.83717483
+ true obj mean: 12.196394
+MSE :0.0917501226067543
+"
+random_nonconvex_dataset_var70_ineq50_eq20_ex5000.npz,0,"Validation summary:
+  max ‖Ay−x‖₂ : 0.28143597
+  max max(0, Gy−h) : 0.12982035
+
+Ground‑truth (validation targets)
+  max ‖Ay−x‖₂   : 3.5238902e-06
+  max max(0,Gy−h): 2.1457672e-06
+ objective  gap : 0.8819373
+ true obj mean: 12.196394
+MSE :0.09527339786291122
+"
+random_nonconvex_dataset_var70_ineq50_eq20_ex5000.npz,0,"Validation summary:
+  max ‖Ay−x‖₂ : 0.24112351
+  max max(0, Gy−h) : 0.11252236
+
+Ground‑truth (validation targets)
+  max ‖Ay−x‖₂   : 3.5238902e-06
+  max max(0,Gy−h): 2.1457672e-06
+ objective  gap : 0.89637166
+ true obj mean: 12.196394
+MSE :0.09662226587533951
+"
+random_nonconvex_dataset_var70_ineq50_eq20_ex5000.npz,0,"Validation summary:
+  max ‖Ay−x‖₂ : 0.21514936
+  max max(0, Gy−h) : 0.10458946
+
+Ground‑truth (validation targets)
+  max ‖Ay−x‖₂   : 3.5238902e-06
+  max max(0,Gy−h): 2.1457672e-06
+ objective  gap : 0.9035751
+ true obj mean: 12.196394
+MSE :0.09742005914449692
+"
+random_nonconvex_dataset_var70_ineq50_eq20_ex5000.npz,0,"Validation summary:
+  max ‖Ay−x‖₂ : 0.19331193
+  max max(0, Gy−h) : 0.10000324
+
+Ground‑truth (validation targets)
+  max ‖Ay−x‖₂   : 3.5238902e-06
+  max max(0,Gy−h): 2.1457672e-06
+ objective  gap : 0.9081073
+ true obj mean: 12.196394
+MSE :0.09798923879861832
+"

@@ -20,32 +20,60 @@ import logging
 import jax
 import jax.numpy as jnp
 import numpy as np
+import json
 from numpyro.infer import Predictive
 from sklearn.model_selection import train_test_split
 import dc3supervisedmodel as dcs 
 from dc3classes import ProblemData
 from dc3feasibility import equality_residuals, inequality_residuals
+from bnncommon import *
 
 # ─── import the DC‑3 training / prediction helpers ─────────────────────────
 from dc3supervisedmodel import run_supervised, predict_supervised  # adapt names if different
 from stopping import PatienceThresholdStoppingCriteria
-# ────────────────────────────── 0.  RNG key ────────────────────────────────
-key = jax.random.PRNGKey(0)
+import argparse
+import os
+import io
+import csv
+from contextlib import redirect_stdout
+
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--data', type=str)
+parser.add_argument('--seed', type=int)
+args = parser.parse_args()
+
+
+key = jax.random.PRNGKey(args.seed)
 
 # ────────────────────────────── 1.  load data ──────────────────────────────
-# Suppose X.shape == (N, m)   and   Y.shape == (N, n)
+# Suppose X.shape == (N, m)   and   Y.shape == (N, n) 
+#filename = "random_nonconvex_dataset_var70_ineq50_eq20_ex5000.npz"
 #filename = "random_nonconvex_dataset_var20_ineq5_eq10_ex5000.npz"
-filename = 'random_nonconvex_dataset_var100_ineq50_eq50_ex10000.npz'
+#filename = 'random_nonconvex_dataset_var100_ineq50_eq50_ex10000.npz'
 #filename = 'random_nonconvex_dataset_var150_ineq50_eq50_ex5000.npz'
 data = np.load(filename, allow_pickle=False)
 G, Q, A, h, p, X, Y = (data[k] for k in ('G','Q','A','h','p','X','Y'))
-N_train_val = 500
-X = X[:N_train_val,:]
-Y = Y[:N_train_val,:]
+N_unsup = 4096
+N_sup = 512
+N_val = 100
+N_test = 100
+N_tot = N_unsup + N_sup + N_test + N_val
+assert N_tot <= X.shape[0]
+
+idx1 = N_sup
+idx2 = idx1 + N_unsup
+idx3 = idx2 + N_val
+
+X_tr,  Y_tr  = X[:idx1,],         Y[:idx1]
+X_unsup, Y_unsup = X[idx1:idx2],    Y[idx1:idx2]
+X_val,  Y_val  = X[idx2:idx3],     Y[idx2:idx3]
+X_test, Y_test = X[idx3:idx3+N_test], Y[idx3:idx3+N_test]
+
 
 
 # ────────────────────────────── 2.  split ─────────────────────────────────
-X_tr, X_val, Y_tr, Y_val = train_test_split(X, Y, test_size=0.1, random_state=0)
 
 # ────────────────────────────── 3.  normalisation ─────────────────────────
 EPS = 1e-6
@@ -56,6 +84,22 @@ X_tr_norm = (X_tr - X_mean) / X_std
 X_val_norm = (X_val - X_mean) / X_std
 
 # ────────────────────────────── 4.  ProblemData ───────────────────────────
+
+config_file = 'expts/configs/config_temp70.json'
+with open(config_file, "r") as f:
+    config = json.load(f)
+
+#initial_learning_rate = config.get("initial_learning_rate", 1e-2)
+initial_learning_rate = 1e-3
+#decay_rate = config.get("decay_rate", 1e-3) 
+decay_rate = 1e-4
+max_training_time = config.get("max_training_time", 800.0)
+max_epochs = 20000 
+width = config.get("width", 120)
+num_layers = config.get("num_layers", 1)
+
+
+
 problem = ProblemData(
     Q=jnp.array(Q), A=jnp.array(A), G=jnp.array(G), h=jnp.array(h), p=jnp.array(p),
     X_train_norm=X_tr_norm,  # placeholders for API compatibility
@@ -68,7 +112,7 @@ problem = ProblemData(
     Y_std=jnp.array(Y_std),
     batch_size=500
 )
-problem.init_meta(hidden_width=240, num_hidden_layers=1)
+problem.init_meta(hidden_width=width, num_hidden_layers=num_layers)
 
 
 # 0. logger -----------------------------------------------------------------
@@ -85,10 +129,10 @@ stop_check = PatienceThresholdStoppingCriteria(log,
 # 2. train -------------------------------------------------------------------
 run_supervised(problem,           # ProblemData
                log,               # logger
-               initial_learning_rate=1e-2,
-               decay_rate=5e-3,
-               max_training_time=300.0,
-               max_epochs=2000,
+               initial_learning_rate=initial_learning_rate,
+               decay_rate=decay_rate,
+               max_training_time=max_training_time,
+               max_epochs=max_epochs,
                validate_every=20,
                vi_parameters=None,
                stop_check=stop_check,
@@ -97,7 +141,14 @@ run_supervised(problem,           # ProblemData
 # 3. build a Predictive object with the *best* parameters --------------------
 
 best_params = stop_check.vi_parameters            # ← stored by early‑stopping
+validate_model(key,
+                   X_val_norm, X_val, Y_val,
+                   problem, best_params,
+                   dcs.supervised_testing_model,
+                   dcs.supervised_guide)
+'''    
 key, subkey = jax.random.split(key)
+
 
 # helper handles argument order expected by the model
 predictive = Predictive(
@@ -154,3 +205,4 @@ after = input("Save training log to 'train_log.npy'? [y/N] → ")
 if after.lower().startswith("y"):
     np.save("train_log.npy", train_log)
     print("  log saved.")
+'''
