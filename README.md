@@ -1,14 +1,14 @@
-# BNN-OPF: Bayesian Neural Networks for Optimal Power Flow
-
-## License
-BNN-OPF is provided under a BSD-3 license as part of the Optimization and Machine Learning Toolbox project, O4806.
-See [LICENSE.md](https://github.com/lanl-ansi/MathOptAI.jl/blob/main/LICENSE.md) for details.
+# Bayesian Neural Networks for Optimal Power Flow
 
 ## Information 
 This repository contains the source code for the paper:
 **"Optimization Proxies using Limited Labeled Data and Training Time – A Semi-Supervised Bayesian Neural Network Approach"**  
 Parikshit Pareek, Abhijith Jayakumar, Kaarthik Sundar, Deepjyoti Deka, Sidhant Misra  
 [arXiv:2410.03085](https://arxiv.org/pdf/2410.03085)
+
+## License
+BNN-OPF is provided under a BSD-3 license as part of the Optimization and Machine Learning Toolbox project, O4806.
+See [LICENSE.md](https://github.com/lanl-ansi/MathOptAI.jl/blob/main/LICENSE.md) for details.
 
 ---
 
