@@ -43,6 +43,8 @@ The BNN-OPF framework addresses the challenge of learning optimization proxies f
    poetry install 
   ```
 
+---
+
 ## ⚙️ CLI Arguments in main.py 
 
 Run the command for details on the CLI arguments. 
@@ -50,8 +52,12 @@ Run the command for details on the CLI arguments.
 python main.py --help 
 ``` 
 
-📬 Contact
+---
+
+## 📬 Contact
 
 For questions or collaborations, please reach out to:
 
 Parikshit Pareek: pareek@ee.iitr.ac.in
+
+---
